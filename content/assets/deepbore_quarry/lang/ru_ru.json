@@ -20,10 +20,10 @@
   "deepbore_quarry.status.6": "Сигнал редстоуна",
   "deepbore_quarry.status.7": "Область больше разрешённой",
   "deepbore_quarry.status.8": "Работа закончена",
+  "deepbore_quarry.status.9": "Область не загружена",
   "deepbore_quarry.not_owner": "Этот карьер принадлежит другому игроку.",
   "deepbore_quarry.maxsize.set": "Наибольшая область карьера: %s×%s",
   "deepbore_quarry.maxsize.usage": "Размеры: 5, 9, 13 или 17",
   "deepbore_quarry.chunk.taken": "Чанки держит другой карьер",
-  "deepbore_quarry.status.9": "Область не загружена",
   "deepbore_quarry.missing.native": "Deepbore Quarry: не установлен нативный мод, поэтому карьера нет. Поставьте ещё deepbore_quarry_native."
 }

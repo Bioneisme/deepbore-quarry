@@ -53,7 +53,13 @@ impl Upgrades {
     pub fn from_slots(slots: &[Option<Upgrade>; UPGRADE_SLOTS]) -> Upgrades {
         // The menu's slot rule sees one stack, not the others, so a slot can hold
         // one over the limit: that one adds nothing.
-        let count = |kind: Upgrade| slots.iter().filter(|s| **s == Some(kind)).count().min(kind.limit());
+        let count = |kind: Upgrade| {
+            slots
+                .iter()
+                .filter(|s| **s == Some(kind))
+                .count()
+                .min(kind.limit())
+        };
         Upgrades {
             area: count(Upgrade::Area) as u8,
             speed: count(Upgrade::Speed) as u8,
@@ -171,7 +177,10 @@ impl Area {
         self.max[0] - self.min[0] + 1
     }
     pub fn start(&self) -> Cursor {
-        Cursor { y: self.top, index: 0 }
+        Cursor {
+            y: self.top,
+            index: 0,
+        }
     }
     pub fn pos(&self, c: Cursor) -> [i32; 3] {
         let side = self.side();
@@ -186,9 +195,15 @@ impl Area {
         }
         let side = self.side() as u32;
         if c.index + 1 < side * side {
-            return Some(Cursor { y: c.y, index: c.index + 1 });
+            return Some(Cursor {
+                y: c.y,
+                index: c.index + 1,
+            });
         }
-        (c.y > min_y).then_some(Cursor { y: c.y - 1, index: 0 })
+        (c.y > min_y).then_some(Cursor {
+            y: c.y - 1,
+            index: 0,
+        })
     }
     #[cfg(test)]
     pub fn contains(&self, pos: [i32; 3]) -> bool {
@@ -320,7 +335,10 @@ pub enum Action {
     Skip,
     /// Take an item from the fuel slot, add its burn time to `burn`, and step again.
     Burn,
-    Break { pos: [i32; 3], fluid: bool },
+    Break {
+        pos: [i32; 3],
+        fluid: bool,
+    },
 }
 
 /// How many free cells one tick may pass, so an empty layer takes a moment
@@ -477,7 +495,11 @@ impl Loads {
     }
     /// Whether the mod may remove `chunk`; asking forgets that it was somebody else's.
     pub fn take_ours(&mut self, dimension: &str, chunk: [i32; 2]) -> bool {
-        match self.foreign.iter().position(|(d, c)| d == dimension && *c == chunk) {
+        match self
+            .foreign
+            .iter()
+            .position(|(d, c)| d == dimension && *c == chunk)
+        {
             Some(at) => {
                 self.foreign.remove(at);
                 false
@@ -524,13 +546,23 @@ mod upgrade_tests {
     }
     #[test]
     fn counts_slots() {
-        let s = [Some(Upgrade::Speed), Some(Upgrade::Speed), Some(Upgrade::Fluids), None];
+        let s = [
+            Some(Upgrade::Speed),
+            Some(Upgrade::Speed),
+            Some(Upgrade::Fluids),
+            None,
+        ];
         let u = Upgrades::from_slots(&s);
         assert_eq!((u.area, u.speed, u.fluids, u.chunk), (0, 2, true, false));
     }
     #[test]
     fn limits() {
-        let s = [Some(Upgrade::Area), Some(Upgrade::Area), Some(Upgrade::Area), None];
+        let s = [
+            Some(Upgrade::Area),
+            Some(Upgrade::Area),
+            Some(Upgrade::Area),
+            None,
+        ];
         assert!(!accepts(&s, 3, Upgrade::Area));
         assert!(accepts(&s, 3, Upgrade::Speed));
         let f = [Some(Upgrade::Fluids), None, None, None];
@@ -541,10 +573,22 @@ mod upgrade_tests {
     }
     #[test]
     fn item_names() {
-        assert_eq!(upgrade_of("deepbore_quarry:speed_upgrade"), Some(Upgrade::Speed));
-        assert_eq!(upgrade_of("deepbore_quarry:area_upgrade"), Some(Upgrade::Area));
-        assert_eq!(upgrade_of("deepbore_quarry:fluids_upgrade"), Some(Upgrade::Fluids));
-        assert_eq!(upgrade_of("deepbore_quarry:chunk_upgrade"), Some(Upgrade::Chunk));
+        assert_eq!(
+            upgrade_of("deepbore_quarry:speed_upgrade"),
+            Some(Upgrade::Speed)
+        );
+        assert_eq!(
+            upgrade_of("deepbore_quarry:area_upgrade"),
+            Some(Upgrade::Area)
+        );
+        assert_eq!(
+            upgrade_of("deepbore_quarry:fluids_upgrade"),
+            Some(Upgrade::Fluids)
+        );
+        assert_eq!(
+            upgrade_of("deepbore_quarry:chunk_upgrade"),
+            Some(Upgrade::Chunk)
+        );
         assert_eq!(upgrade_of("minecraft:coal"), None);
     }
 }
@@ -625,13 +669,19 @@ mod step_tests {
     #[test]
     fn new_quarry_is_off() {
         let mut q = Quarry::new(7, Facing::North, P);
-        assert!(matches!(step(&mut q, P, &input()), Action::Stopped(Stop::Off)));
+        assert!(matches!(
+            step(&mut q, P, &input()),
+            Action::Stopped(Stop::Off)
+        ));
     }
     #[test]
     fn placed_below_the_world_is_done() {
         let mut q = running();
         q.cursor = Some(Cursor { y: -70, index: 0 });
-        assert!(matches!(step(&mut q, [0, -70, 0], &input()), Action::Stopped(Stop::Done)));
+        assert!(matches!(
+            step(&mut q, [0, -70, 0], &input()),
+            Action::Stopped(Stop::Done)
+        ));
         assert_eq!(q.cursor, None);
     }
     #[test]
@@ -669,7 +719,10 @@ mod step_tests {
     fn skips_do_not_cost_fuel() {
         let mut q = running();
         for cell in [Cell::Air, Cell::Unbreakable, Cell::Kept] {
-            assert!(matches!(step(&mut q, P, &Input { cell, ..input() }), Action::Skip));
+            assert!(matches!(
+                step(&mut q, P, &Input { cell, ..input() }),
+                Action::Skip
+            ));
         }
         assert_eq!(q.burn, 1600);
         assert_eq!(q.cursor.unwrap().index, 3);
@@ -677,7 +730,10 @@ mod step_tests {
     #[test]
     fn fluid_stops_without_the_upgrade() {
         let mut q = running();
-        let i = Input { cell: Cell::Fluid, ..input() };
+        let i = Input {
+            cell: Cell::Fluid,
+            ..input()
+        };
         assert!(matches!(step(&mut q, P, &i), Action::Stopped(Stop::Fluid)));
         assert_eq!(q.cursor.unwrap().index, 0);
     }
@@ -686,27 +742,89 @@ mod step_tests {
         let mut q = running();
         let i = Input {
             cell: Cell::Fluid,
-            upgrades: Upgrades { fluids: true, ..none() },
+            upgrades: Upgrades {
+                fluids: true,
+                ..none()
+            },
             ..input()
         };
-        assert!(matches!(step(&mut q, P, &i), Action::Break { fluid: true, .. }));
+        assert!(matches!(
+            step(&mut q, P, &i),
+            Action::Break { fluid: true, .. }
+        ));
         assert_eq!(q.cursor.unwrap().index, 1);
     }
     #[test]
     fn asks_to_burn_then_stops_dry() {
         let mut q = running();
         q.burn = 150;
-        assert!(matches!(step(&mut q, P, &Input { fuel: Some(1600), ..input() }), Action::Burn));
-        assert!(matches!(step(&mut q, P, &input()), Action::Stopped(Stop::NoFuel)));
+        assert!(matches!(
+            step(
+                &mut q,
+                P,
+                &Input {
+                    fuel: Some(1600),
+                    ..input()
+                }
+            ),
+            Action::Burn
+        ));
+        assert!(matches!(
+            step(&mut q, P, &input()),
+            Action::Stopped(Stop::NoFuel)
+        ));
     }
     #[test]
     fn stop_reasons_in_order() {
         let mut q = running();
         let chest = false;
-        assert!(matches!(step(&mut q, P, &Input { powered: true, chest, ..input() }), Action::Stopped(Stop::Redstone)));
-        assert!(matches!(step(&mut q, P, &Input { max_side: 4, chest, ..input() }), Action::Stopped(Stop::TooLarge)));
-        assert!(matches!(step(&mut q, P, &Input { chest, pending: true, ..input() }), Action::Stopped(Stop::NoChest)));
-        assert!(matches!(step(&mut q, P, &Input { pending: true, ..input() }), Action::Stopped(Stop::ChestFull)));
+        assert!(matches!(
+            step(
+                &mut q,
+                P,
+                &Input {
+                    powered: true,
+                    chest,
+                    ..input()
+                }
+            ),
+            Action::Stopped(Stop::Redstone)
+        ));
+        assert!(matches!(
+            step(
+                &mut q,
+                P,
+                &Input {
+                    max_side: 4,
+                    chest,
+                    ..input()
+                }
+            ),
+            Action::Stopped(Stop::TooLarge)
+        ));
+        assert!(matches!(
+            step(
+                &mut q,
+                P,
+                &Input {
+                    chest,
+                    pending: true,
+                    ..input()
+                }
+            ),
+            Action::Stopped(Stop::NoChest)
+        ));
+        assert!(matches!(
+            step(
+                &mut q,
+                P,
+                &Input {
+                    pending: true,
+                    ..input()
+                }
+            ),
+            Action::Stopped(Stop::ChestFull)
+        ));
         assert_eq!(q.burn, 1600);
     }
     #[test]
@@ -724,13 +842,19 @@ mod step_tests {
         let mut q = running();
         q.cursor = Some(Cursor { y: -64, index: 24 });
         assert!(matches!(step(&mut q, P, &input()), Action::Break { .. }));
-        assert!(matches!(step(&mut q, P, &input()), Action::Stopped(Stop::Done)));
+        assert!(matches!(
+            step(&mut q, P, &input()),
+            Action::Stopped(Stop::Done)
+        ));
     }
     #[test]
     fn survives_a_save() {
         let q = Quarry::new(u128::MAX - 5, Facing::East, P);
         let back: Quarry = serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
-        assert_eq!((back.burn, back.cursor, back.owner, back.facing), (q.burn, q.cursor, q.owner, q.facing));
+        assert_eq!(
+            (back.burn, back.cursor, back.owner, back.facing),
+            (q.burn, q.cursor, q.owner, q.facing)
+        );
     }
     #[test]
     fn status_codes() {
@@ -836,7 +960,10 @@ mod later_tests {
     #[test]
     fn head_moves_towards_its_target() {
         assert_eq!(approach([0.0; 3], [10.0, 0.0, 0.0], 2.0), [2.0, 0.0, 0.0]);
-        assert_eq!(approach([9.5, 0.0, 0.0], [10.0, 0.0, 0.0], 2.0), [10.0, 0.0, 0.0]);
+        assert_eq!(
+            approach([9.5, 0.0, 0.0], [10.0, 0.0, 0.0], 2.0),
+            [10.0, 0.0, 0.0]
+        );
         assert_eq!(approach([1.0; 3], [1.0; 3], 2.0), [1.0; 3]);
     }
     #[test]
@@ -853,10 +980,24 @@ mod review_tests {
 
     #[test]
     fn only_storage_takes_the_loot() {
-        for name in ["minecraft:chest", "minecraft:trapped_chest", "minecraft:copper_chest", "minecraft:barrel", "minecraft:red_shulker_box", "somemod:iron_chest"] {
+        for name in [
+            "minecraft:chest",
+            "minecraft:trapped_chest",
+            "minecraft:copper_chest",
+            "minecraft:barrel",
+            "minecraft:red_shulker_box",
+            "somemod:iron_chest",
+        ] {
             assert!(is_storage(name), "{name}");
         }
-        for name in ["minecraft:hopper", "minecraft:furnace", "minecraft:jukebox", "minecraft:chiseled_bookshelf", "minecraft:dropper", "deepbore_quarry:quarry"] {
+        for name in [
+            "minecraft:hopper",
+            "minecraft:furnace",
+            "minecraft:jukebox",
+            "minecraft:chiseled_bookshelf",
+            "minecraft:dropper",
+            "deepbore_quarry:quarry",
+        ] {
             assert!(!is_storage(name), "{name}");
         }
     }
@@ -881,10 +1022,28 @@ mod review_tests {
     #[test]
     fn dimensions_of_the_holds() {
         let mut l = Loads::default();
-        l.hold(1, &("minecraft:the_nether".to_string(), [0, 64, 0]), vec![[0, 0]]);
-        l.hold(2, &("minecraft:the_nether".to_string(), [9, 64, 0]), vec![[1, 0]]);
-        l.hold(3, &("minecraft:the_end".to_string(), [0, 64, 0]), vec![[0, 0]]);
-        assert_eq!(l.dimensions(), vec!["minecraft:the_end".to_string(), "minecraft:the_nether".to_string()]);
+        l.hold(
+            1,
+            &("minecraft:the_nether".to_string(), [0, 64, 0]),
+            vec![[0, 0]],
+        );
+        l.hold(
+            2,
+            &("minecraft:the_nether".to_string(), [9, 64, 0]),
+            vec![[1, 0]],
+        );
+        l.hold(
+            3,
+            &("minecraft:the_end".to_string(), [0, 64, 0]),
+            vec![[0, 0]],
+        );
+        assert_eq!(
+            l.dimensions(),
+            vec![
+                "minecraft:the_end".to_string(),
+                "minecraft:the_nether".to_string()
+            ]
+        );
     }
     #[test]
     fn time_stays_fine_on_old_worlds() {

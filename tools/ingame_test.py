@@ -4,8 +4,9 @@
     python tools/ingame_test.py GAME_FOLDER VERSION [SCENARIO ...]
 
 GAME_FOLDER is a test instance's folder, VERSION the installed version it plays
-(native-...). The world `dbq-test` is left for a look; delete the instance when done. Scenarios: screen dig chest kept fluid save
-redstone limit hopper chunk draw waiting nether recipes russian deep. Without any, all of them.
+(native-...). The world `dbq-test` is left for a look; delete the instance when done.
+Scenarios: screen dig chest kept fluid save redstone limit hopper chunk draw waiting
+nether recipes russian deep. Without any, all of them.
 """
 import json
 import os

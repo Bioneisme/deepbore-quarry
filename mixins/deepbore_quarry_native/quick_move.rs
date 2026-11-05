@@ -6,5 +6,12 @@ fn deepbore_quarry_quick_move(
     stack: &mut horizon_client::items::ItemStack,
     handled: &mut bool,
 ) {
-    crate::game::deepbore_quarry_glue::quick_move(game, entity, container_slots, slot, stack, handled);
+    crate::game::deepbore_quarry_glue::quick_move(
+        game,
+        entity,
+        container_slots,
+        slot,
+        stack,
+        handled,
+    );
 }

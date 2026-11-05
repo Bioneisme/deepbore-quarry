@@ -126,7 +126,11 @@ pub(in crate::game) fn server_tick(game: &mut Game<'_>, phase: ServerTickPhase) 
             return;
         };
         let st = guard.as_mut().expect("opened");
-        let wake = if st.woken { Vec::new() } else { st.loads.dimensions() };
+        let wake = if st.woken {
+            Vec::new()
+        } else {
+            st.loads.dimensions()
+        };
         st.woken = true;
         (std::mem::take(&mut st.commands), wake)
     };
@@ -140,7 +144,9 @@ pub(in crate::game) fn server_tick(game: &mut Game<'_>, phase: ServerTickPhase) 
         let dimension = &force.dimension;
         if !force.add {
             let mut guard = WORLD.lock().unwrap_or_else(|e| e.into_inner());
-            let ours = guard.as_mut().is_none_or(|st| st.loads.take_ours(dimension, force.chunk));
+            let ours = guard
+                .as_mut()
+                .is_none_or(|st| st.loads.take_ours(dimension, force.chunk));
             drop(guard);
             if ours {
                 game.native_run_command(&format!(
@@ -212,9 +218,11 @@ pub(in crate::game) fn items(items: &mut Vec<Item>) {
 /// plain text, as the language files are gone too.
 pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) {
     let registry = &game.pack.assets.registry;
-    let assets = registry
-        .default_state(rules::BLOCK)
-        .is_some_and(|state| world_items!(game).block_loot_table(registry, state).is_some());
+    let assets = registry.default_state(rules::BLOCK).is_some_and(|state| {
+        world_items!(game)
+            .block_loot_table(registry, state)
+            .is_some()
+    });
     if assets {
         game.native_run_command(&format!("tag {name} add deepbore_quarry.native"));
         return;
@@ -280,8 +288,7 @@ pub(in crate::game) fn perform(game: &mut Game<'_>, line: &str, ran: &mut bool) 
         return;
     };
     let st = guard.as_mut().expect("opened");
-    let (words, side) = (words.next(), words.next());
-    let reply = match (words, side) {
+    let reply = match (words.next(), words.next()) {
         (Some("maxsize"), Some(arg)) => match rules::parse_max_side(arg) {
             Some(side) => {
                 st.config.max_side = side;
@@ -457,7 +464,9 @@ fn keep(entity: &mut ModBlockEntity, stack: ItemStack) {
 // new Horizon revision, so they stay here.
 
 fn burn_time(game: &Game<'_>, stack: &ItemStack) -> i32 {
-    game.res.providers().burn_time(world_items!(game), stack, false)
+    game.res
+        .providers()
+        .burn_time(world_items!(game), stack, false)
 }
 
 /// What a block drops under an unenchanted diamond pickaxe, which harvests
@@ -469,7 +478,12 @@ fn drops(game: &mut Game<'_>, state: BlockStateId) -> Vec<ItemStack> {
         damage: 0,
         extra: None,
     };
-    world_items!(game).block_drops(&game.pack.assets.registry, state, Some(&tool), &mut game.world.random)
+    world_items!(game).block_drops(
+        &game.pack.assets.registry,
+        state,
+        Some(&tool),
+        &mut game.world.random,
+    )
 }
 
 fn classify(game: &Game<'_>, at: [i32; 3]) -> Cell {
@@ -478,7 +492,10 @@ fn classify(game: &Game<'_>, at: [i32; 3]) -> Cell {
     }
     let facts = game.res.facts().get(game.world.block(at[0], at[1], at[2]));
     let name = &*facts.name;
-    if matches!(name, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air") {
+    if matches!(
+        name,
+        "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air"
+    ) {
         return Cell::Air;
     }
     if !matches!(facts.fluid, Fluid::None) && !facts.waterlogged {
@@ -487,7 +504,11 @@ fn classify(game: &Game<'_>, at: [i32; 3]) -> Cell {
     if facts.hardness < 0.0 {
         return Cell::Unbreakable;
     }
-    let contents = game.world.block_entities.get(&(at[0], at[1], at[2])).is_some();
+    let contents = game
+        .world
+        .block_entities
+        .get(&(at[0], at[1], at[2]))
+        .is_some();
     if name == rules::BLOCK || (contents && name != "minecraft:spawner") {
         return Cell::Kept;
     }
@@ -504,7 +525,11 @@ fn dig(
     chest: Option<([i32; 3], Direction)>,
 ) {
     let state = game.world.block(at[0], at[1], at[2]);
-    let center = [f64::from(at[0]) + 0.5, f64::from(at[1]) + 0.5, f64::from(at[2]) + 0.5];
+    let center = [
+        f64::from(at[0]) + 0.5,
+        f64::from(at[1]) + 0.5,
+        f64::from(at[2]) + 0.5,
+    ];
     // A fluid is plugged with cobblestone, so that it can't run into the pit.
     let (place, loot) = if fluid {
         ("minecraft:cobblestone", Vec::new())
@@ -533,7 +558,13 @@ fn dig(
             0.1,
             8,
         );
-        level.native_play_sound("minecraft:block.stone.break", center, BLOCK_SOUNDS, 0.6, 1.0);
+        level.native_play_sound(
+            "minecraft:block.stone.break",
+            center,
+            BLOCK_SOUNDS,
+            0.6,
+            1.0,
+        );
     });
 }
 
@@ -543,8 +574,12 @@ const BLOCK_SOUNDS: usize = 4;
 /// What can't burn leaves the fuel slot for the chest: lava's empty bucket, and
 /// whatever a hopper or a click put there, which would block the fuel behind it.
 fn clear_fuel_slot(game: &Game<'_>, entity: &mut ModBlockEntity) {
-    let useless = entity.items[rules::FUEL_SLOT].as_ref().is_some_and(|s| burn_time(game, s) == 0);
-    let room = entity.items[rules::FIRST_BUFFER..].iter().any(Option::is_none);
+    let useless = entity.items[rules::FUEL_SLOT]
+        .as_ref()
+        .is_some_and(|s| burn_time(game, s) == 0);
+    let room = entity.items[rules::FIRST_BUFFER..]
+        .iter()
+        .any(Option::is_none);
     if useless && room {
         if let Some(stack) = entity.items[rules::FUEL_SLOT].take() {
             keep(entity, stack);
@@ -625,15 +660,21 @@ pub(in crate::game) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut Mod
         clear_fuel_slot(game, entity);
         flush(game, entity, chest);
     }
-    let pending = entity.items[rules::FIRST_BUFFER..].iter().any(Option::is_some);
+    let pending = entity.items[rules::FIRST_BUFFER..]
+        .iter()
+        .any(Option::is_some);
     let powered = game.native_neighbor_signal(dimension, pos) > 0;
     let (min_y, _) = game.native_world_height();
-    let max_side = world(game).map_or(rules::side(3), |g| g.as_ref().expect("opened").config.max_side);
+    let max_side = world(game).map_or(rules::side(3), |g| {
+        g.as_ref().expect("opened").config.max_side
+    });
 
     let mut action = Action::Wait;
     let mut broke = false;
     for _ in 0..rules::SKIPS_PER_TICK {
-        let cell = quarry.target(pos).map_or(Cell::Air, |at| classify(game, at));
+        let cell = quarry
+            .target(pos)
+            .map_or(Cell::Air, |at| classify(game, at));
         let fuel = entity.items[rules::FUEL_SLOT]
             .as_ref()
             .map(|s| burn_time(game, s))
@@ -679,7 +720,10 @@ pub(in crate::game) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut Mod
     ];
     // What clients draw changes with the target and with working or not.
     let working = |d: &[i32]| d.first() == Some(&0);
-    if broke || working(&data) != working(&entity.data) || was.as_ref().is_none_or(|w| w.side != quarry.side) {
+    if broke
+        || working(&data) != working(&entity.data)
+        || was.as_ref().is_none_or(|w| w.side != quarry.side)
+    {
         game.native_block_entity_sync(pos);
     }
     if entity.data != data {
@@ -715,8 +759,9 @@ pub(in crate::game) fn quick_move(
     *handled = true;
     if let Some(kind) = rules::upgrade_of(&stack.item) {
         let slots = upgrade_slots(entity);
-        let free = (0..rules::UPGRADE_SLOTS)
-            .find(|i| entity.items[rules::FIRST_UPGRADE + i].is_none() && rules::accepts(&slots, *i, kind));
+        let free = (0..rules::UPGRADE_SLOTS).find(|i| {
+            entity.items[rules::FIRST_UPGRADE + i].is_none() && rules::accepts(&slots, *i, kind)
+        });
         if let Some(i) = free {
             let mut one = stack.clone();
             one.count = 1;
@@ -733,7 +778,9 @@ pub(in crate::game) fn quick_move(
             Some(have) if have.item == stack.item => {
                 let room = (i64::from(most) - have.count as i64).clamp(0, stack.count as i64);
                 have.count = (have.count as i64 + room).try_into().unwrap_or(have.count);
-                stack.count = (stack.count as i64 - room).try_into().unwrap_or(stack.count);
+                stack.count = (stack.count as i64 - room)
+                    .try_into()
+                    .unwrap_or(stack.count);
             }
             Some(_) => {}
         }
@@ -777,51 +824,101 @@ fn filled(key: &str, args: &[String]) -> String {
     line
 }
 
-pub(in crate::game) fn screen_draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+pub(in crate::game) fn screen_draw(
+    game: &Game<'_>,
+    block: &str,
+    data: &[i32],
+    batch: &mut HudBatch,
+    origin: [f32; 2],
+) {
     if block != rules::BLOCK {
         return;
     }
     let [x, y] = origin;
-    game.native_sprite(batch, "deepbore_quarry:gui/quarry", [0.0, 0.0, 176.0, 166.0], [x, y, 176.0, 166.0]);
+    game.native_sprite(
+        batch,
+        "deepbore_quarry:gui/quarry",
+        [0.0, 0.0, 176.0, 166.0],
+        [x, y, 176.0, 166.0],
+    );
     const LABEL: u32 = 0x40_4040;
     let get = |i: usize| data.get(i).copied().unwrap_or(0);
     let text = |batch: &mut HudBatch, line: &str, at: [f32; 2], rgb: u32| {
         game.native_text(batch, line, [x + at[0], y + at[1]], rgb, false);
     };
-    text(batch, &lang::get("deepbore_quarry.screen.title"), [8.0, 6.0], LABEL);
+    text(
+        batch,
+        &lang::get("deepbore_quarry.screen.title"),
+        [8.0, 6.0],
+        LABEL,
+    );
     let status = lang::get(&format!("deepbore_quarry.status.{}", get(0)));
     let color = if get(0) == 0 { 0x20_7020 } else { 0xA0_3020 };
     text(batch, &status, [8.0, 20.0], color);
     let side = get(3).to_string();
     let lines = [
-        (filled("deepbore_quarry.screen.fuel", &[get(1).to_string()]), [8.0, 55.0]),
-        (filled("deepbore_quarry.screen.size", &[side.clone(), side]), [100.0, 55.0]),
+        (
+            filled("deepbore_quarry.screen.fuel", &[get(1).to_string()]),
+            [8.0, 55.0],
+        ),
+        (
+            filled("deepbore_quarry.screen.size", &[side.clone(), side]),
+            [100.0, 55.0],
+        ),
     ];
     for (line, at) in &lines {
         text(batch, line, *at, LABEL);
     }
     let layer = get(2) as i16;
     if layer != i16::MIN {
-        text(batch, &filled("deepbore_quarry.screen.depth", &[layer.to_string()]), [8.0, 65.0], LABEL);
+        text(
+            batch,
+            &filled("deepbore_quarry.screen.depth", &[layer.to_string()]),
+            [8.0, 65.0],
+            LABEL,
+        );
     }
     if get(5) != 0 {
-        text(batch, &lang::get("deepbore_quarry.chunk.taken"), [8.0, 74.0], 0xA0_3020);
+        text(
+            batch,
+            &lang::get("deepbore_quarry.chunk.taken"),
+            [8.0, 74.0],
+            0xA0_3020,
+        );
     }
     let [bx, by, bw, bh] = BUTTON;
     game.native_fill(batch, [x + bx, y + by, bw, bh], 0xFF55_5555);
-    game.native_fill(batch, [x + bx + 1.0, y + by + 1.0, bw - 2.0, bh - 2.0], 0xFF8B_8B8B);
+    game.native_fill(
+        batch,
+        [x + bx + 1.0, y + by + 1.0, bw - 2.0, bh - 2.0],
+        0xFF8B_8B8B,
+    );
     let label = lang::get(if get(4) != 0 {
         "deepbore_quarry.screen.stop"
     } else {
         "deepbore_quarry.screen.start"
     });
     let width = game.native_text_width(&label);
-    text(batch, &label, [bx + (bw - width) / 2.0, by + 5.0], 0xFF_FFFF);
+    text(
+        batch,
+        &label,
+        [bx + (bw - width) / 2.0, by + 5.0],
+        0xFF_FFFF,
+    );
 }
 
-pub(in crate::game) fn screen_click(block: &str, at: [f32; 2], right: bool, button: &mut Option<i32>) {
+pub(in crate::game) fn screen_click(
+    block: &str,
+    at: [f32; 2],
+    right: bool,
+    button: &mut Option<i32>,
+) {
     let [bx, by, bw, bh] = BUTTON;
-    if block == rules::BLOCK && !right && (bx..bx + bw).contains(&at[0]) && (by..by + bh).contains(&at[1]) {
+    if block == rules::BLOCK
+        && !right
+        && (bx..bx + bw).contains(&at[0])
+        && (by..by + bh).contains(&at[1])
+    {
         *button = Some(TOGGLE);
     }
 }
@@ -829,7 +926,11 @@ pub(in crate::game) fn screen_click(block: &str, at: [f32; 2], right: bool, butt
 // ---- the drawing -----------------------------------------------------------
 
 /// What clients get of a quarry: the square, whether it works, its pace and its target.
-pub(in crate::game) fn update_tag(pos: [i32; 3], entity: &ModBlockEntity, tag: &mut Option<Compound>) {
+pub(in crate::game) fn update_tag(
+    pos: [i32; 3],
+    entity: &ModBlockEntity,
+    tag: &mut Option<Compound>,
+) {
     if entity.id != rules::BLOCK {
         return;
     }
@@ -884,7 +985,14 @@ struct Head {
 /// Where each quarry's head is, on this client, so it moves between two blocks.
 static HEADS: Mutex<Option<HashMap<[i32; 3], Head>>> = Mutex::new(None);
 
-fn part(game: &Game<'_>, draw: &mut BlockEntityDraw, sprite: &str, at: [f32; 3], from: [f32; 3], to: [f32; 3]) {
+fn part(
+    game: &Game<'_>,
+    draw: &mut BlockEntityDraw,
+    sprite: &str,
+    at: [f32; 3],
+    from: [f32; 3],
+    to: [f32; 3],
+) {
     let face = Some(CubeFace { sprite, uv: None });
     draw.push();
     draw.translate(at);
@@ -892,14 +1000,31 @@ fn part(game: &Game<'_>, draw: &mut BlockEntityDraw, sprite: &str, at: [f32; 3],
     draw.pop();
 }
 
-pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockEntity, draw: &mut BlockEntityDraw) {
+pub(in crate::game) fn submit(
+    game: &Game<'_>,
+    pos: [i32; 3],
+    entity: &ModBlockEntity,
+    draw: &mut BlockEntityDraw,
+) {
     if entity.id != rules::BLOCK {
         return;
     }
     let Some(Tag::IntArray(view)) = entity.nbt.get(&JavaString::from("view")) else {
         return;
     };
-    let &[min_x, min_z, max_x, max_z, working, ticks, has_target, tx, ty, tz] = view.as_slice() else {
+    let &[
+        min_x,
+        min_z,
+        max_x,
+        max_z,
+        working,
+        ticks,
+        has_target,
+        tx,
+        ty,
+        tz,
+    ] = view.as_slice()
+    else {
         return;
     };
     // The quarry's own block is dark inside: the light is the air's above it.
@@ -927,7 +1052,14 @@ pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockE
     for corner in [[x0, z0], [x1, z0], [x0, z1], [x1, z1]] {
         let mut y = 0.0;
         while y < GANTRY {
-            part(game, draw, FRAME, [corner[0], y, corner[1]], upright.0, upright.1);
+            part(
+                game,
+                draw,
+                FRAME,
+                [corner[0], y, corner[1]],
+                upright.0,
+                upright.1,
+            );
             y += 1.0;
         }
     }
@@ -936,7 +1068,11 @@ pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockE
     let time = (draw.game_time, draw.partial);
     let centre = [(x0 + x1) / 2.0, GANTRY, (z0 + z1) / 2.0];
     let target = if has_target != 0 {
-        [(tx - pos[0]) as f32, (ty - pos[1]) as f32 + 1.0, (tz - pos[2]) as f32]
+        [
+            (tx - pos[0]) as f32,
+            (ty - pos[1]) as f32 + 1.0,
+            (tz - pos[2]) as f32,
+        ]
     } else {
         centre
     };
@@ -949,7 +1085,11 @@ pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockE
         let elapsed = rules::ticks_between(head.time, time).min(20.0);
         head.time = time;
         if working != 0 || has_target == 0 {
-            let d = [target[0] - head.at[0], target[1] - head.at[1], target[2] - head.at[2]];
+            let d = [
+                target[0] - head.at[0],
+                target[1] - head.at[1],
+                target[2] - head.at[2],
+            ];
             let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
             let pace = (3.0 / ticks.max(1) as f32).max(distance / 40.0);
             head.at = rules::approach(head.at, target, pace * elapsed);
@@ -960,20 +1100,54 @@ pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockE
     // The bridge across the square, at the head's z.
     let mut x = x0;
     while x <= x1 {
-        part(game, draw, FRAME, [x, GANTRY, head[2]], along_x.0, along_x.1);
+        part(
+            game,
+            draw,
+            FRAME,
+            [x, GANTRY, head[2]],
+            along_x.0,
+            along_x.1,
+        );
         x += 1.0;
     }
     // The carriage on the bridge, the shaft below it, the bit at its end.
-    part(game, draw, FRAME, [head[0], GANTRY, head[2]], [3.0; 3], [13.0; 3]);
+    part(
+        game,
+        draw,
+        FRAME,
+        [head[0], GANTRY, head[2]],
+        [3.0; 3],
+        [13.0; 3],
+    );
     let mut y = GANTRY;
     while y - 1.0 >= head[1] {
         y -= 1.0;
-        part(game, draw, DRILL, [head[0], y, head[2]], upright.0, upright.1);
+        part(
+            game,
+            draw,
+            DRILL,
+            [head[0], y, head[2]],
+            upright.0,
+            upright.1,
+        );
     }
     if y > head[1] {
         let left = (y - head[1]) * 16.0;
-        part(game, draw, DRILL, [head[0], head[1], head[2]], upright.0, [10.0, left, 10.0]);
+        part(
+            game,
+            draw,
+            DRILL,
+            [head[0], head[1], head[2]],
+            upright.0,
+            [10.0, left, 10.0],
+        );
     }
-    part(game, draw, DRILL, [head[0], head[1], head[2]], [4.0, 0.0, 4.0], [12.0, 6.0, 12.0]);
+    part(
+        game,
+        draw,
+        DRILL,
+        [head[0], head[1], head[2]],
+        [4.0, 0.0, 4.0],
+        [12.0, 6.0, 12.0],
+    );
 }
-

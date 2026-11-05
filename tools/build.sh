@@ -1,9 +1,12 @@
 #!/bin/bash
-# Checks and packages the mod in WSL under ~/horizon-build.
+# Checks and packages the mod on Linux or WSL.
 #   tools/build.sh check [lines]    cargo check of the game with the mod applied
 #   tools/build.sh package          dist/deepbore_quarry.hmod and dist/deepbore_quarry_native.hnmod
+#
+# HORIZON_BUILD (default ~/horizon-build) holds a clone of horizon-mods in
+# horizon-mods/, and its own rustup, cargo and uv, so nothing needs installing system-wide.
 set -u
-B=~/horizon-build
+B=${HORIZON_BUILD:-$HOME/horizon-build}
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 ID=deepbore_quarry_native
 export RUSTUP_HOME=$B/rustup CARGO_HOME=$B/cargo PATH=$B/cargo/bin:$B/uv:$B/tools/bin:$PATH
