@@ -43,9 +43,17 @@ struct WorldState {
     config: rules::Config,
     loads: rules::Loads,
     loads_changed: bool,
-    /// Console commands for the end of the server tick: a player's click and a
-    /// block entity's tick can't run them.
-    commands: Vec<String>,
+    /// Forced chunks to change at the end of the server tick: a player's click
+    /// and a block entity's tick can't run console commands.
+    commands: Vec<Force>,
+    /// The first tick of this world has run.
+    woken: bool,
+}
+
+struct Force {
+    dimension: String,
+    add: bool,
+    chunk: [i32; 2],
 }
 
 static WORLD: Mutex<Option<WorldState>> = Mutex::new(None);
@@ -89,20 +97,21 @@ fn world(game: &Game<'_>) -> Option<MutexGuard<'static, Option<WorldState>>> {
             loads: read_json(&dir.join("loads.json")),
             loads_changed: false,
             commands: Vec::new(),
+            woken: false,
             dir,
         });
     }
     Some(state)
 }
 
-fn forceload(commands: &mut Vec<String>, dimension: &str, change: rules::Change) {
-    for (word, chunks) in [("add", change.add), ("remove", change.remove)] {
-        for [x, z] in chunks {
-            commands.push(format!(
-                "execute in {dimension} run forceload {word} {} {}",
-                x * 16,
-                z * 16
-            ));
+fn forceload(commands: &mut Vec<Force>, dimension: &str, change: rules::Change) {
+    for (add, chunks) in [(true, change.add), (false, change.remove)] {
+        for chunk in chunks {
+            commands.push(Force {
+                dimension: dimension.to_owned(),
+                add,
+                chunk,
+            });
         }
     }
 }
@@ -112,20 +121,50 @@ pub(in crate::game) fn server_tick(game: &mut Game<'_>, phase: ServerTickPhase) 
     if !matches!(phase, ServerTickPhase::ServerTickEnd { .. }) {
         return;
     }
-    let commands = {
+    let (commands, wake) = {
         let Some(mut guard) = world(game) else {
             return;
         };
         let st = guard.as_mut().expect("opened");
+        let wake = if st.woken { Vec::new() } else { st.loads.dimensions() };
+        st.woken = true;
+        (std::mem::take(&mut st.commands), wake)
+    };
+    // A level no player has entered isn't open, so the chunks it forces wouldn't
+    // tick and its quarries would wait for a visitor. A command in it opens it.
+    for dimension in wake {
+        game.native_run_command(&format!("execute in {dimension} run forceload query"));
+    }
+    for force in commands {
+        let [x, z] = force.chunk;
+        let dimension = &force.dimension;
+        if !force.add {
+            let mut guard = WORLD.lock().unwrap_or_else(|e| e.into_inner());
+            let ours = guard.as_mut().is_none_or(|st| st.loads.take_ours(dimension, force.chunk));
+            drop(guard);
+            if ours {
+                game.native_run_command(&format!(
+                    "execute in {dimension} run forceload remove {} {}",
+                    x * 16,
+                    z * 16
+                ));
+            }
+        } else if !game.native_run_command(&format!(
+            "execute in {dimension} run forceload add {} {}",
+            x * 16,
+            z * 16
+        )) {
+            // Already forced, by an operator or a command block: it stays when we let go.
+            if let Some(st) = WORLD.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                st.loads.not_ours(dimension, force.chunk);
+                st.loads_changed = true;
+            }
+        }
+    }
+    if let Some(st) = WORLD.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
         if st.loads_changed {
             write_json(&st.dir.join("loads.json"), &st.loads);
             st.loads_changed = false;
-        }
-        std::mem::take(&mut st.commands)
-    };
-    for line in commands {
-        if !game.native_run_command(&line) {
-            log::warn!("[deepbore_quarry] failed: {line}");
         }
     }
 }
@@ -384,7 +423,7 @@ const AROUND: [([i32; 3], Direction); 6] = [
 fn find_chest(game: &Game<'_>, dimension: &str, pos: [i32; 3]) -> Option<([i32; 3], Direction)> {
     AROUND.iter().find_map(|(offset, face)| {
         let at = [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]];
-        (game.native_block(at) != rules::BLOCK
+        (rules::is_storage(&game.native_block(at))
             && game
                 .native_container_slots(dimension, at, *face)
                 .is_some_and(|slots| !slots.is_empty()))
@@ -501,6 +540,18 @@ fn dig(
 /// The "blocks" sound source (`SOUND_SOURCES`).
 const BLOCK_SOUNDS: usize = 4;
 
+/// What can't burn leaves the fuel slot for the chest: lava's empty bucket, and
+/// whatever a hopper or a click put there, which would block the fuel behind it.
+fn clear_fuel_slot(game: &Game<'_>, entity: &mut ModBlockEntity) {
+    let useless = entity.items[rules::FUEL_SLOT].as_ref().is_some_and(|s| burn_time(game, s) == 0);
+    let room = entity.items[rules::FIRST_BUFFER..].iter().any(Option::is_none);
+    if useless && room {
+        if let Some(stack) = entity.items[rules::FUEL_SLOT].take() {
+            keep(entity, stack);
+        }
+    }
+}
+
 fn take_fuel(entity: &mut ModBlockEntity) {
     let Some(stack) = entity.items[rules::FUEL_SLOT].as_mut() else {
         return;
@@ -571,6 +622,7 @@ pub(in crate::game) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut Mod
     let dimension = game.native_dimension();
     let chest = find_chest(game, dimension, pos);
     if let Some(chest) = chest {
+        clear_fuel_slot(game, entity);
         flush(game, entity, chest);
     }
     let pending = entity.items[rules::FIRST_BUFFER..].iter().any(Option::is_some);
@@ -737,11 +789,7 @@ pub(in crate::game) fn screen_draw(game: &Game<'_>, block: &str, data: &[i32], b
         game.native_text(batch, line, [x + at[0], y + at[1]], rgb, false);
     };
     text(batch, &lang::get("deepbore_quarry.screen.title"), [8.0, 6.0], LABEL);
-    let status = if get(5) != 0 {
-        lang::get("deepbore_quarry.chunk.taken")
-    } else {
-        lang::get(&format!("deepbore_quarry.status.{}", get(0)))
-    };
+    let status = lang::get(&format!("deepbore_quarry.status.{}", get(0)));
     let color = if get(0) == 0 { 0x20_7020 } else { 0xA0_3020 };
     text(batch, &status, [8.0, 20.0], color);
     let side = get(3).to_string();
@@ -755,6 +803,9 @@ pub(in crate::game) fn screen_draw(game: &Game<'_>, block: &str, data: &[i32], b
     let layer = get(2) as i16;
     if layer != i16::MIN {
         text(batch, &filled("deepbore_quarry.screen.depth", &[layer.to_string()]), [8.0, 65.0], LABEL);
+    }
+    if get(5) != 0 {
+        text(batch, &lang::get("deepbore_quarry.chunk.taken"), [8.0, 74.0], 0xA0_3020);
     }
     let [bx, by, bw, bh] = BUTTON;
     game.native_fill(batch, [x + bx, y + by, bw, bh], 0xFF55_5555);
@@ -826,7 +877,8 @@ const DRILL: &str = "deepbore_quarry:block/drill";
 
 struct Head {
     at: [f32; 3],
-    time: f32,
+    /// The frame it was last drawn: game time and partial tick.
+    time: (i64, f32),
 }
 
 /// Where each quarry's head is, on this client, so it moves between two blocks.
@@ -881,7 +933,7 @@ pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockE
     }
 
     // The head: it moves on towards the block above the target, smoothly.
-    let time = draw.game_time as f32 + draw.partial;
+    let time = (draw.game_time, draw.partial);
     let centre = [(x0 + x1) / 2.0, GANTRY, (z0 + z1) / 2.0];
     let target = if has_target != 0 {
         [(tx - pos[0]) as f32, (ty - pos[1]) as f32 + 1.0, (tz - pos[2]) as f32]
@@ -894,7 +946,7 @@ pub(in crate::game) fn submit(game: &Game<'_>, pos: [i32; 3], entity: &ModBlockE
             .get_or_insert_with(HashMap::new)
             .entry(pos)
             .or_insert(Head { at: centre, time });
-        let elapsed = (time - head.time).clamp(0.0, 20.0);
+        let elapsed = rules::ticks_between(head.time, time).min(20.0);
         head.time = time;
         if working != 0 || has_target == 0 {
             let d = [target[0] - head.at[0], target[1] - head.at[1], target[2] - head.at[2]];

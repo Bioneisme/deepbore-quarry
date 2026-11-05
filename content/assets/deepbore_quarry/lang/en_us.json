@@ -23,7 +23,7 @@
   "deepbore_quarry.not_owner": "This quarry belongs to another player.",
   "deepbore_quarry.maxsize.set": "Largest quarry area: %s×%s",
   "deepbore_quarry.maxsize.usage": "Sizes: 5, 9, 13 or 17",
-  "deepbore_quarry.chunk.taken": "Another of your quarries keeps its chunks loaded",
+  "deepbore_quarry.chunk.taken": "Another quarry holds its chunks",
   "deepbore_quarry.status.9": "Area not loaded",
   "deepbore_quarry.missing.native": "Deepbore Quarry: the native mod is missing, so there is no quarry. Install deepbore_quarry_native too."
 }

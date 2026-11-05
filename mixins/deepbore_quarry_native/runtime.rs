@@ -132,6 +132,12 @@ pub fn approach(from: [f32; 3], to: [f32; 3], by: f32) -> [f32; 3] {
     [from[0] + d[0] * f, from[1] + d[1] * f, from[2] + d[2] * f]
 }
 
+/// Ticks from one frame's `(game time, partial tick)` to another's, never below
+/// zero. The game time alone is too big for an f32 on an old world.
+pub fn ticks_between(from: (i64, f32), to: (i64, f32)) -> f32 {
+    ((to.0 - from.0) as f32 + to.1 - from.1).max(0.0)
+}
+
 /// The square in front of the quarry, `[x, z]`, both ends included, from the
 /// quarry's own level down.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,6 +226,13 @@ pub enum Cell {
     Kept,
     /// Its chunk isn't loaded, so nothing is known about it.
     Unloaded,
+}
+
+/// Whether a container beside a quarry is one to fill: a hopper feeding the fuel
+/// slot, a furnace or a jukebox aren't, even though they have slots.
+pub fn is_storage(block: &str) -> bool {
+    let path = block.split_once(':').map_or(block, |(_, path)| path);
+    path.ends_with("chest") || path.ends_with("barrel") || path.ends_with("shulker_box")
 }
 
 /// Why a quarry stands still, in the order `status_code` numbers them.
@@ -392,6 +405,9 @@ struct Hold {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Loads {
     holds: Vec<Hold>,
+    /// Chunks that were already forced when a quarry asked: an operator's, not ours to remove.
+    #[serde(default)]
+    foreign: Vec<(String, [i32; 2])>,
 }
 
 /// What to do to the world's forced chunks, in the quarry's dimension.
@@ -454,6 +470,27 @@ impl Loads {
     }
     pub fn holds(&self, key: &Key) -> bool {
         self.holds.iter().any(|h| h.key == *key)
+    }
+    /// Forcing `chunk` changed nothing: somebody else had forced it.
+    pub fn not_ours(&mut self, dimension: &str, chunk: [i32; 2]) {
+        self.foreign.push((dimension.to_owned(), chunk));
+    }
+    /// Whether the mod may remove `chunk`; asking forgets that it was somebody else's.
+    pub fn take_ours(&mut self, dimension: &str, chunk: [i32; 2]) -> bool {
+        match self.foreign.iter().position(|(d, c)| d == dimension && *c == chunk) {
+            Some(at) => {
+                self.foreign.remove(at);
+                false
+            }
+            None => true,
+        }
+    }
+    /// The dimensions with a quarry keeping chunks loaded.
+    pub fn dimensions(&self) -> Vec<String> {
+        let mut all: Vec<String> = self.holds.iter().map(|h| h.key.0.clone()).collect();
+        all.sort_unstable();
+        all.dedup();
+        all
     }
 }
 
@@ -807,5 +844,53 @@ mod later_tests {
         assert_eq!(FUEL_SLOT, 0);
         assert_eq!(FIRST_UPGRADE + UPGRADE_SLOTS, FIRST_BUFFER);
         assert_eq!(SLOTS, 14); // data/deepbore_quarry/horizon/menu/quarry.json says the same
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn only_storage_takes_the_loot() {
+        for name in ["minecraft:chest", "minecraft:trapped_chest", "minecraft:copper_chest", "minecraft:barrel", "minecraft:red_shulker_box", "somemod:iron_chest"] {
+            assert!(is_storage(name), "{name}");
+        }
+        for name in ["minecraft:hopper", "minecraft:furnace", "minecraft:jukebox", "minecraft:chiseled_bookshelf", "minecraft:dropper", "deepbore_quarry:quarry"] {
+            assert!(!is_storage(name), "{name}");
+        }
+    }
+    #[test]
+    fn a_chunk_already_forced_is_left_alone() {
+        let mut l = Loads::default();
+        let key = ("minecraft:overworld".to_string(), [0, 64, 0]);
+        l.hold(1, &key, vec![[0, 0], [0, 1]]);
+        l.not_ours("minecraft:overworld", [0, 0]);
+        // The operator's chunk stays forced when the quarry lets go; the mod's goes.
+        assert!(!l.take_ours("minecraft:overworld", [0, 0]));
+        assert!(l.take_ours("minecraft:overworld", [0, 1]));
+        // Once: a later quarry's own hold of that chunk is the mod's again.
+        assert!(l.take_ours("minecraft:overworld", [0, 0]));
+        assert!(l.take_ours("minecraft:the_nether", [0, 0]));
+    }
+    #[test]
+    fn old_files_still_read() {
+        let l: Loads = serde_json::from_str(r#"{"holds":[]}"#).unwrap();
+        assert_eq!(l, Loads::default());
+    }
+    #[test]
+    fn dimensions_of_the_holds() {
+        let mut l = Loads::default();
+        l.hold(1, &("minecraft:the_nether".to_string(), [0, 64, 0]), vec![[0, 0]]);
+        l.hold(2, &("minecraft:the_nether".to_string(), [9, 64, 0]), vec![[1, 0]]);
+        l.hold(3, &("minecraft:the_end".to_string(), [0, 64, 0]), vec![[0, 0]]);
+        assert_eq!(l.dimensions(), vec!["minecraft:the_end".to_string(), "minecraft:the_nether".to_string()]);
+    }
+    #[test]
+    fn time_stays_fine_on_old_worlds() {
+        let old = 1_i64 << 33; // far past where an f32 keeps any fraction
+        assert_eq!(ticks_between((old, 0.25), (old, 0.75)), 0.5);
+        assert_eq!(ticks_between((old, 0.75), (old + 2, 0.25)), 1.5);
+        assert_eq!(ticks_between((old + 2, 0.25), (old, 0.75)), 0.0);
     }
 }

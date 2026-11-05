@@ -5,7 +5,7 @@
 
 GAME_FOLDER is a test instance's folder, VERSION the installed version it plays
 (native-...). The world `dbq-test` is left for a look; delete the instance when done. Scenarios: screen dig chest kept fluid save
-redstone limit hopper chunk draw recipes russian deep. Without any, all of them.
+redstone limit hopper chunk draw waiting nether recipes russian deep. Without any, all of them.
 """
 import json
 import os
@@ -273,18 +273,81 @@ def s_limit():
 def s_hopper():
     scene(800, 0)
     chat("setblock 800 152 0 minecraft:hopper[facing=down]")
-    chat('data merge block 800 152 0 {Items:[{Slot:0b,id:"minecraft:coal",count:2}]}')
+    items = '{Slot:0b,id:"minecraft:cobblestone",count:1},{Slot:1b,id:"minecraft:coal",count:3}'
+    chat(f"data merge block 800 152 0 {{Items:[{items}]}}")
     chat("setblock 800 150 0 minecraft:hopper")
     ctl("wait", 60)
     opened(800, 0)
     fuel = container(0)
     check("a hopper feeds the fuel slot", fuel.get("item") == COAL, str(fuel))
+    toggle(800, 0)
     ctl("close")
+    ctl("wait", 200)
+    counts = chest_counts(800, 0)
+    print(" chest:", counts)
+    check("the loot goes to the chest, not the hopper", counts.get("minecraft:smooth_stone", 0) >= 3, str(counts))
+    check("what can't burn leaves the fuel slot for the chest", counts.get("minecraft:cobblestone") == 1, str(counts))
     check("a hopper below takes nothing", chest_counts(800, 0, (800, 150, 0)) == {}, str(chest_counts(800, 0, (800, 150, 0))))
+
+
+def s_waiting():
+    """A drop with no room waits in the quarry, through a save, and comes back when it is broken."""
+    scene(1200, 0)
+    items = ",".join(f'{{Slot:{i}b,id:"minecraft:cobblestone",count:64}}' for i in range(27))
+    chat(f"data merge block 1201 151 0 {{Items:[{items}]}}")
+    opened(1200, 0)
+    put(0, COAL, 2)
+    toggle(1200, 0)
+    ctl("close")
+    ctl("wait", 80)
+    check("the first block is dug", "smooth_stone" not in block(1198, 151, -5), block(1198, 151, -5))
+    check("and the second waits", "smooth_stone" in block(1199, 151, -5), block(1199, 151, -5))
+    ctl("quit")
+    time.sleep(8)
+    launched()
+    chat("tp @s 1200.5 151 3.5")
+    ctl("wait", 60)
+    check("still waiting after the world is reopened", "smooth_stone" in block(1199, 151, -5), block(1199, 151, -5))
+    chat("gamemode survival")
+    ctl("give", "minecraft:iron_pickaxe", 1)
+    ctl("select", "minecraft:iron_pickaxe")
+    print(" break:", str(ctl("break", 1200, 151, 0))[:200])
+    ctl("wait", 20)
+    chat("gamemode creative")
+    entities = json.dumps(ctl("entities"))
+    check("broken: the waiting drop comes back", "smooth_stone" in entities, entities[:300])
+    check("broken: so does its fuel", "minecraft:coal" in entities, entities[:300])
+    chat("kill @e[type=item]")
+
+
+def s_nether():
+    """A chunk-upgraded quarry in a level nobody enters works after the world is reopened."""
+    nether = "execute in minecraft:the_nether run"
+    chat(f"{nether} tp @s 3000.5 160 3008.5")
+    ctl("wait", 80)
+    scene(3000, 3000)
+    opened(3000, 3000)
+    put(0, COAL, 16)
+    put(1, "deepbore_quarry:chunk_upgrade", 1)
+    toggle(3000, 3000)
+    ctl("close")
+    ctl("wait", 40)
+    chat("execute in minecraft:overworld run tp @s 0.5 160 0.5")
+    ctl("wait", 40)
+    line = " ".join(chat(f"{nether} data get block 3001 151 3000 Items"))
+    before = sum(int(m) for m in re.findall(r"count: ?(\d+)", line))
+    ctl("quit")
+    time.sleep(8)
+    launched()
+    ctl("wait", 300)
+    line = " ".join(chat(f"{nether} data get block 3001 151 3000 Items"))
+    after = sum(int(m) for m in re.findall(r"count: ?(\d+)", line))
+    check("the nether's quarry works after a reopen with nobody there", after >= before + 3, f"{before} then {after}")
 
 
 def s_chunk():
     scene(900, 0)
+    print(" operator's own:", chat("forceload add 900 0"))
     opened(900, 0)
     put(0, COAL, 16)
     put(1, "deepbore_quarry:chunk_upgrade", 1)
@@ -308,9 +371,12 @@ def s_chunk():
     chat("gamemode creative")
     line = " ".join(chat("forceload query"))
     print(" forceload after:", line)
-    check("broken: its chunks are let go", "No chunks" in line or "not" in line.lower() or "56" not in line, line)
+    check("broken: its chunks are let go", "56, -1" not in line, line)
+    check("an operator's own forced chunk stays", "56, 0" in line, line)
+    chat("forceload remove 900 0")
     entities = json.dumps(ctl("entities"))
-    check("broken: it drops itself", QUARRY in entities, entities[:200])
+    check("broken: it drops itself", QUARRY in entities, entities[:300])
+    check("broken: and its upgrade", "chunk_upgrade" in entities, entities[:300])
 
 
 def s_draw():
@@ -331,10 +397,45 @@ def s_draw():
     print(" state:", json.dumps(ctl("status"))[:300])
 
 
+def craft(name):
+    """Crafts a recipe by hand on a table, from what its file says, and takes the result."""
+    recipe = json.load(open(f"content/data/deepbore_quarry/recipe/{name}.json", encoding="utf-8"))
+    rows = "".join(recipe["pattern"])
+    chat("clear @s")
+    for symbol, item in recipe["key"].items():
+        ctl("give", item, rows.count(symbol))
+    ctl("wait", 3)
+    ctl("interact", 1302, 151, 0)
+    ctl("wait", 4)
+    for symbol, item in recipe["key"].items():
+        at = next(x["slot"] for x in ctl("screen")["slots"] if x.get("item") == item and x["slot"] < 36)
+        ctl("click-slot", at)
+        for cell, c in enumerate(rows):
+            if c == symbol:
+                ctl("click-slot", 100 + cell, "right")
+    ctl("wait", 3)
+    ctl("click-slot", 200)
+    ctl("wait", 3)
+    carried = (ctl("inventory").get("carried") or {}).get("item")
+    ctl("close")
+    ctl("wait", 3)
+    return carried
+
+
 def s_recipes():
+    chat("tp @s 1300.5 160 0.5")
+    ctl("wait", 60)
+    chat("fill 1296 150 -4 1304 150 4 minecraft:smooth_stone")
+    chat("fill 1296 151 -4 1304 155 4 minecraft:air")
+    chat("setblock 1302 151 0 minecraft:crafting_table")
+    chat("tp @s 1300.5 151 0.5")
+    chat("gamemode survival")
+    ctl("wait", 6)
     for name in ["quarry", "area_upgrade", "speed_upgrade", "fluids_upgrade", "chunk_upgrade"]:
-        line = " ".join(chat(f"recipe give @s deepbore_quarry:{name}"))
-        check(f"the recipe of {name}", "Unlocked" in line or "unlocked" in line, line)
+        got = craft(name)
+        check(f"the recipe of {name}", got == f"deepbore_quarry:{name}", str(got))
+    chat("gamemode creative")
+    chat("clear @s")
 
 
 def s_russian():
@@ -352,21 +453,17 @@ def s_russian():
 
 def s_deep():
     """Real ground: a pit with everything the world has in it, as fast as the quarry goes."""
-    chat("tp @s 2000 200 2000")
+    chat("tp @s 2000.5 200 2003.5")
     ctl("wait", 120)
-    y = None
-    for yy in range(140, 40, -1):
-        if "air" not in block(2000, yy, 2000) and "leaves" not in block(2000, yy, 2000):
-            y = yy
-            break
-    print(" ground at", y)
-    level = y + 1
+    level = next(y for y in range(150, 40, -1) if not any(w in block(2000, y, 2000) for w in ("air", "leaves", "log", "snow"))) + 1
+    print(" ground under", level)
+    chat(f"fill 1999 {level} 2001 2001 {level + 3} 2005 minecraft:air")
+    chat(f"fill 1999 {level - 1} 2001 2001 {level - 1} 2005 minecraft:smooth_stone")
     chat(f"tp @s 2000.5 {level} 2003.5 180 0")
     ctl("wait", 20)
-    ctl("give", QUARRY, 1)
-    print(" place:", str(ctl("place", 2000, level, 2000, "--item", QUARRY))[:150])
-    ctl("wait", 2)
+    chat(f"setblock 2000 {level} 2000 {QUARRY}[facing=south]")
     chat(f"setblock 2001 {level} 2000 minecraft:chest")
+    ctl("wait", 4)
     ctl("interact", 2000, level, 2000)
     ctl("wait", 4)
     put(0, "minecraft:coal_block", 16)
@@ -377,20 +474,22 @@ def s_deep():
     toggle(2000, 2000)
     shot("deep_screen")
     ctl("close")
-    chat(f"tp @s 2006.5 {level + 8} 2006.5 150 30")
-    ctl("wait", 600)
+    chat(f"setblock 2006 {level + 11} 2004 minecraft:glass")
+    chat(f"tp @s 2006.5 {level + 12} 2004.5 120 40")
+    ctl("wait", 1200)
     shot("deep_pit")
     counts = chest_counts(2000, 2000, (2001, level, 2000))
     print(" chest:", counts)
     check("real ground comes to the chest", sum(counts.values()) >= 60, str(counts))
-    items = [e for e in ctl("entities").get("entities", []) if e.get("kind") == "item"]
+    items = [e.get("item") for e in ctl("entities").get("entities", []) if e.get("kind") == "item"]
     check("nothing lands on the ground", not items, str(items)[:300])
+    print(" tick:", json.dumps(ctl("status").get("tick", ctl("status").get("mspt", "")))[:200])
 
 
 SCENARIOS = {
     "screen": s_screen, "dig": s_dig, "chest": s_chest, "kept": s_kept, "fluid": s_fluid, "save": s_save,
     "redstone": s_redstone, "limit": s_limit, "hopper": s_hopper, "chunk": s_chunk, "draw": s_draw,
-    "recipes": s_recipes, "russian": s_russian, "deep": s_deep,
+    "waiting": s_waiting, "nether": s_nether, "recipes": s_recipes, "russian": s_russian, "deep": s_deep,
 }
 
 
