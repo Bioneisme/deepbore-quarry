@@ -1,0 +1,18 @@
+[package]
+name = "horizon-mod-deepbore-quarry"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Deepbore Quarry for Horizon, a native mod: a machine that digs a square pit down to bedrock and fills a chest."
+
+# The mod's rules and their tests: the same file the bundle adds to the game
+# as `game::deepbore_quarry`. The glue names game types and is compiled only
+# inside Horizon.
+[lib]
+path = "mixins/deepbore_quarry_native/runtime.rs"
+
+# Both are in Horizon's Cargo.lock, so the staged game builds them too.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
