@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "GGG",
+    "GEG",
+    "GGG"
+  ],
+  "key": {
+    "G": "minecraft:gold_ingot",
+    "E": "minecraft:ender_eye"
+  },
+  "result": {
+    "id": "deepbore_quarry:chunk_upgrade",
+    "count": 1
+  }
+}

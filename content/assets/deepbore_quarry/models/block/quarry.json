@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "deepbore_quarry:block/quarry_side",
+    "down": "deepbore_quarry:block/quarry_side",
+    "up": "deepbore_quarry:block/quarry_top",
+    "north": "deepbore_quarry:block/quarry_front",
+    "south": "deepbore_quarry:block/quarry_back",
+    "west": "deepbore_quarry:block/quarry_side",
+    "east": "deepbore_quarry:block/quarry_side"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "deepbore_quarry:block/quarry"
+    },
+    "facing=east": {
+      "model": "deepbore_quarry:block/quarry",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "deepbore_quarry:block/quarry",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "deepbore_quarry:block/quarry",
+      "y": 270
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "IBI",
+    "BMB",
+    "IBI"
+  ],
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "B": "minecraft:bucket",
+    "M": "minecraft:magma_block"
+  },
+  "result": {
+    "id": "deepbore_quarry:fluids_upgrade",
+    "count": 1
+  }
+}
