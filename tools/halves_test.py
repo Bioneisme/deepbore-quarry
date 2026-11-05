@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Checks the chat warning when one of the mod's two parts is missing, and that none comes when both are there.
+
+    python tools/halves_test.py GAME_FOLDER NATIVE_VERSION NIGHTLY_VERSION
+
+GAME_FOLDER is a test instance's folder. Its horizon-mods.txt is put back afterwards.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+GAME, NATIVE, NIGHTLY = sys.argv[1:4]
+os.environ["HORIZON_HOME"] = GAME
+os.environ["MSYS_NO_PATHCONV"] = "1"
+sys.stdout.reconfigure(encoding="utf-8")
+LIST = os.path.join(GAME, "horizon-mods.txt")
+failed = []
+
+
+def run(version, world, setting):
+    ctl_path = os.path.join(os.environ["APPDATA"], "horizon-launcher", "versions", version, "horizon-ctl.exe")
+
+    def ctl(*args):
+        out = subprocess.run([ctl_path, *map(str, args)], capture_output=True, text=True, encoding="utf-8", timeout=280)
+        try:
+            return json.loads(out.stdout)
+        except ValueError:
+            return {"raw": (out.stdout + out.stderr)[:300]}
+
+    with open(LIST, "w", encoding="utf-8", newline="\n") as f:
+        f.write(setting)
+    r = ctl("launch", "--world", world, "--seed", "12345", "--creative", "--wait", "--offscreen")
+    print(" launch:", str(r)[:70])
+    ctl("wait", 60)
+    lines = ctl("chat-log", 20).get("chat", [])
+    ctl("screenshot", os.path.join(GAME, "dbq-shots", f"{world}.png"))
+    ctl("quit")
+    time.sleep(8)
+    print(" chat:", lines)
+    return " ".join(map(str, lines))
+
+
+def check(name, ok, detail):
+    print(("ok  " if ok else "FAIL"), name)
+    if not ok:
+        failed.append(f"{name}: {detail}")
+
+
+saved = LIST + ".saved"
+shutil.copyfile(LIST, saved)
+try:
+    both = run(NATIVE, "dbq-both", "mod.deepbore_quarry:true\nmod.deepbore_quarry_native:true\n")
+    check("both parts: no warning", "Deepbore Quarry:" not in both, both)
+    code = run(NATIVE, "dbq-code", "mod.deepbore_quarry:false\nmod.deepbore_quarry_native:true\n")
+    check("code alone: the assets mod is named", "assets mod is missing" in code, code)
+    assets = run(NIGHTLY, "dbq-assets", "mod.deepbore_quarry:true\nmod.deepbore_quarry_native:false\n")
+    check("assets alone: the native mod is named", "native mod is missing" in assets or "нативный" in assets, assets)
+finally:
+    shutil.move(saved, LIST)
+print(f"== failed: {failed}" if failed else "== all passed")
