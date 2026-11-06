@@ -25,5 +25,5 @@
   "deepbore_quarry.maxsize.set": "Наибольшая область карьера: %s×%s",
   "deepbore_quarry.maxsize.usage": "Размеры: 5, 9, 13 или 17",
   "deepbore_quarry.chunk.taken": "Чанки держит другой карьер",
-  "deepbore_quarry.missing.native": "Deepbore Quarry: не установлен нативный мод, поэтому карьера нет. Поставьте ещё deepbore_quarry_native."
+  "deepbore_quarry.missing.native": "Deepbore Quarry: не установлен нативный мод, поэтому карьера нет. Поставьте ещё deepbore_quarry_native:"
 }

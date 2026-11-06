@@ -19,7 +19,7 @@ use horizon_client::{
     lang,
     mod_api::{NativeCommand, NativeMod, NativeScreen, ServerTickPhase},
     particles::{ParticleOptions, ParticleType},
-    text::Text,
+    text::{self, ClickEvent, Style, Text},
 };
 use horizon_core::{geometry::Direction, position::BlockPos};
 use horizon_mods::content::{Block, BlockProperties, Item, Rarity};
@@ -214,8 +214,8 @@ pub(in crate::game) fn items(items: &mut Vec<Item>) {
 
 /// A player joins. The assets half, if it's there, reads the tag to know this
 /// half is too (content/data/deepbore_quarry/function/check.mcfunction). Without the
-/// assets half, which brings the block's loot table, they hear what's missing, in
-/// plain text, as the language files are gone too.
+/// assets half, which brings the block's loot table, they hear what's missing and
+/// where to get it, in plain text, as the language files are gone too.
 pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) {
     let registry = &game.pack.assets.registry;
     let assets = registry.default_state(rules::BLOCK).is_some_and(|state| {
@@ -227,11 +227,19 @@ pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) 
         game.native_run_command(&format!("tag {name} add deepbore_quarry.native"));
         return;
     }
+    const ASSETS_PAGE: &str = "https://playhorizon.dev/mods/deepbore_quarry";
+    let link = Style {
+        color: Some(text::AQUA),
+        underlined: Some(true),
+        click: Some(ClickEvent::OpenUrl(ASSETS_PAGE.to_owned())),
+        ..Style::default()
+    };
     for line in [
-        "Deepbore Quarry: the assets mod is missing. Install deepbore_quarry too.",
-        "Deepbore Quarry: не установлен мод с ассетами. Поставьте ещё deepbore_quarry.",
+        "Deepbore Quarry: the assets mod is missing. Install deepbore_quarry too: ",
+        "Deepbore Quarry: не установлен мод с ассетами. Поставьте ещё deepbore_quarry: ",
     ] {
-        game.native_tell(player, Text::literal(line.to_owned()));
+        let line = Text::literal(line).append(Text::styled(ASSETS_PAGE, link.clone()));
+        game.native_tell(player, line);
     }
 }
 

@@ -8,7 +8,8 @@ square pit down to bedrock on furnace fuel and fills a chest beside it, under a 
 > - `deepbore_quarry_native`: the native part, the code.
 > - `deepbore_quarry`: the assets, its textures, text and recipes.
 >
-> Install both on the launcher's Mods page and press Build. If one is missing, the game says so in chat.
+> Install both on the launcher's Mods page and press Build. If one is missing, the game says so in chat, with a link to
+> its page.
 
 ![A quarry at work: a yellow gantry over a deep square pit in a meadow, with the machine and its chest at the edge](docs/images/quarry.jpg)
 

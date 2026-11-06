@@ -7,6 +7,7 @@ GAME_FOLDER is a test instance's folder. Its horizon-mods.txt is put back afterw
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -36,11 +37,18 @@ def run(version, world, setting):
     print(" launch:", str(r)[:70])
     ctl("wait", 60)
     lines = ctl("chat-log", 20).get("chat", [])
+    drawn = json.dumps(ctl("messages", 20), ensure_ascii=False)
     ctl("screenshot", os.path.join(GAME, "dbq-shots", f"{world}.png"))
     ctl("quit")
     time.sleep(8)
     print(" chat:", lines)
-    return " ".join(map(str, lines))
+    print(" drawn:", drawn[:900])
+    return " ".join(map(str, lines)), drawn
+
+
+def links(drawn):
+    """The pages of the catalog that a click on the chat's lines opens."""
+    return set(re.findall(r'"open_url"[^{}]*?https://playhorizon\.dev/mods/(\w+)', drawn))
 
 
 def check(name, ok, detail):
@@ -52,12 +60,14 @@ def check(name, ok, detail):
 saved = LIST + ".saved"
 shutil.copyfile(LIST, saved)
 try:
-    both = run(NATIVE, "dbq-both", "mod.deepbore_quarry:true\nmod.deepbore_quarry_native:true\n")
+    both, _ = run(NATIVE, "dbq-both", "mod.deepbore_quarry:true\nmod.deepbore_quarry_native:true\n")
     check("both parts: no warning", "Deepbore Quarry:" not in both, both)
-    code = run(NATIVE, "dbq-code", "mod.deepbore_quarry:false\nmod.deepbore_quarry_native:true\n")
+    code, drawn = run(NATIVE, "dbq-code", "mod.deepbore_quarry:false\nmod.deepbore_quarry_native:true\n")
     check("code alone: the assets mod is named", "assets mod is missing" in code, code)
-    assets = run(NIGHTLY, "dbq-assets", "mod.deepbore_quarry:true\nmod.deepbore_quarry_native:false\n")
+    check("code alone: a click opens the assets' page", links(drawn) == {"deepbore_quarry"}, drawn)
+    assets, drawn = run(NIGHTLY, "dbq-assets", "mod.deepbore_quarry:true\nmod.deepbore_quarry_native:false\n")
     check("assets alone: the native mod is named", "native mod is missing" in assets or "нативный" in assets, assets)
+    check("assets alone: a click opens the native part's page", links(drawn) == {"deepbore_quarry_native"}, drawn)
 finally:
     shutil.move(saved, LIST)
 print(f"== failed: {failed}" if failed else "== all passed")
