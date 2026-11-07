@@ -3,13 +3,9 @@
 A mod for [Horizon](https://github.com/horizon-rust/horizon) (Minecraft: Java Edition 26.3 in Rust). A machine that digs a
 square pit down to bedrock on furnace fuel and fills a chest beside it, under a moving gantry with a drill.
 
-> **The mod has two parts, and you need both:**
->
-> - `deepbore_quarry_native`: the native part, the code.
-> - `deepbore_quarry`: the assets, its textures, text and recipes.
->
-> Install both on the launcher's Mods page and press Build. If one is missing, the game says so in chat, with a link to
-> its page.
+> **Install one mod:** `deepbore_quarry_native` on the launcher's Mods page, then press Build. Since 0.1.1 its
+> textures, text and recipes ride inside it, so the separate `deepbore_quarry` (assets) entry is no longer needed. It
+> does no harm if you already have it: the installed copy is used.
 
 ![A quarry at work: a yellow gantry over a deep square pit in a meadow, with the machine and its chest at the edge](docs/images/quarry.jpg)
 
@@ -96,7 +92,7 @@ world's folder.
 
 ## Good to know
 
-- Every player needs both parts of the mod. It runs with your account's permissions, as every native mod does.
+- Every player needs the mod. It runs with your account's permissions, as every native mod does.
 - It is pinned to Horizon Nightly 2026-11-04 (67dad0d).
 - The gantry is drawn while you are within 64 blocks of the quarry, so it is gone from the bottom of a very deep pit.
 - Torches, ladders and doors on what the quarry digs can fall to the ground with their support.
