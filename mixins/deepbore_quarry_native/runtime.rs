@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const ID: &str = "deepbore_quarry_native";
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = "0.1.2";
 /// The folder in the world's folder.
 pub const DIR: &str = "horizon-deepbore-quarry";
 pub const BLOCK: &str = "deepbore_quarry:quarry";
@@ -532,6 +532,68 @@ pub fn parse_max_side(arg: &str) -> Option<i32> {
     arg.parse().ok().filter(|n| [5, 9, 13, 17].contains(n))
 }
 
+/// The world's files (`loads.json`, `config.json`): written whole and atomically,
+/// tried again after a failed write, and never silently replaced when damaged.
+pub mod store {
+    use serde::{Serialize, de::DeserializeOwned};
+    use std::{
+        fs,
+        io::{self, Write as _},
+        path::{Path, PathBuf},
+    };
+
+    /// A file that is there but can't be read or parsed.
+    #[derive(Debug)]
+    pub struct Damaged {
+        pub error: String,
+        /// Where the damaged file was moved, beside it, so the next write doesn't
+        /// replace it. None when it couldn't be moved: it is still in place.
+        pub kept: Option<PathBuf>,
+    }
+
+    /// The file, or an empty record when there is none. A damaged file is moved
+    /// to `<name>.corrupt-<now>` and reported; it is never taken for an empty one.
+    pub fn read_json<T: DeserializeOwned + Default>(path: &Path, now: u64) -> Result<T, Damaged> {
+        let error = match fs::read(path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(T::default()),
+            Err(e) => e.to_string(),
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(value) => return Ok(value),
+                Err(e) => e.to_string(),
+            },
+        };
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+        let kept = path.with_file_name(format!("{name}.corrupt-{now}"));
+        let kept = fs::rename(path, &kept).ok().map(|()| kept);
+        Err(Damaged { error, kept })
+    }
+
+    /// Written whole and atomically: a temporary file beside it, then renamed over the old one.
+    pub fn write_json<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        fs::create_dir_all(dir)?;
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+        let temp = dir.join(format!(".{name}.tmp"));
+        {
+            let mut file = fs::File::create(&temp)?;
+            file.write_all(&serde_json::to_vec_pretty(value).map_err(io::Error::other)?)?;
+            file.sync_all()?;
+        }
+        fs::rename(&temp, path)
+    }
+
+    /// Saves when something changed. The flag is cleared only after the save
+    /// succeeded, so a failed write is tried again on the next call.
+    pub fn save_if_changed(changed: &mut bool, save: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        if !*changed {
+            return Ok(());
+        }
+        save()?;
+        *changed = false;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod upgrade_tests {
     use super::*;
@@ -1051,5 +1113,70 @@ mod review_tests {
         assert_eq!(ticks_between((old, 0.25), (old, 0.75)), 0.5);
         assert_eq!(ticks_between((old, 0.75), (old + 2, 0.25)), 1.5);
         assert_eq!(ticks_between((old + 2, 0.25), (old, 0.75)), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::store::{Damaged, read_json, save_if_changed, write_json};
+    use super::Loads;
+    use std::{fs, io, path::PathBuf};
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("dbq-store-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_failed_save_stays_pending_and_the_next_one_writes() {
+        let mut changed = true;
+        let failed = save_if_changed(&mut changed, || Err(io::Error::other("disk full")));
+        assert!(failed.is_err(), "the failure is returned");
+        assert!(changed, "still unsaved after a failed write");
+        let mut wrote = false;
+        save_if_changed(&mut changed, || {
+            wrote = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(wrote, "the next save tries again");
+        assert!(!changed, "saved");
+        save_if_changed(&mut changed, || panic!("nothing to save")).unwrap();
+    }
+
+    #[test]
+    fn a_write_that_fails_says_so() {
+        let dir = scratch("write-fails");
+        let blocker = dir.join("not-a-dir");
+        fs::write(&blocker, b"x").unwrap();
+        assert!(write_json(&blocker.join("loads.json"), &Loads::default()).is_err());
+        let ok = dir.join("loads.json");
+        write_json(&ok, &Loads::default()).unwrap();
+        assert!(read_json::<Loads>(&ok, 1).is_ok());
+    }
+
+    #[test]
+    fn a_missing_file_is_empty() {
+        let dir = scratch("missing");
+        assert!(read_json::<Loads>(&dir.join("loads.json"), 1).is_ok());
+    }
+
+    #[test]
+    fn a_damaged_file_is_kept_and_reported() {
+        let dir = scratch("damaged");
+        let path = dir.join("loads.json");
+        fs::write(&path, b"{ not json").unwrap();
+        let Err(Damaged { error, kept }) = read_json::<Loads>(&path, 42) else {
+            panic!("a damaged file is an error, not an empty record");
+        };
+        assert!(!error.is_empty());
+        let kept = kept.expect("moved aside");
+        assert_eq!(kept, dir.join("loads.json.corrupt-42"));
+        assert_eq!(fs::read(&kept).unwrap(), b"{ not json");
+        // The next save writes a new loads.json and the damaged one stays.
+        write_json(&path, &Loads::default()).unwrap();
+        assert_eq!(fs::read(&kept).unwrap(), b"{ not json");
     }
 }

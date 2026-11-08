@@ -27,11 +27,9 @@ use horizon_world::{
     nbt::{Compound, JavaString, Tag},
     registry::BlockStateId,
 };
-use rules::{Action, Cell, Input, Quarry, Upgrade, Upgrades};
+use rules::{Action, Cell, Input, Quarry, Upgrade, Upgrades, store};
 use std::{
     collections::HashMap,
-    fs,
-    io::{self, Write as _},
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
 };
@@ -42,7 +40,14 @@ struct WorldState {
     dir: PathBuf,
     config: rules::Config,
     loads: rules::Loads,
+    /// Not yet saved. Cleared only by a save that succeeded, so a failed one is tried again.
     loads_changed: bool,
+    /// A damaged loads.json couldn't be moved aside: it isn't written over in this session.
+    loads_blocked: bool,
+    /// The last save of loads.json failed (logged once, not every tick).
+    loads_failing: bool,
+    /// Said in chat at the next server tick: a world file was damaged.
+    notices: Vec<String>,
     /// Forced chunks to change at the end of the server tick: a player's click
     /// and a block entity's tick can't run console commands.
     commands: Vec<Force>,
@@ -58,33 +63,36 @@ struct Force {
 
 static WORLD: Mutex<Option<WorldState>> = Mutex::new(None);
 
-fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
-    match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-            log::warn!("[deepbore_quarry] {}: {e}", path.display());
-            T::default()
-        }),
-        Err(_) => T::default(),
+/// A world file, or an empty one when there is none. A damaged file is moved aside
+/// (`<name>.corrupt-<seconds>`), logged as an error and said in chat; the answer's
+/// `false` means it couldn't be moved, so it must not be written over.
+fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path, notices: &mut Vec<String>) -> (T, bool) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    match store::read_json(path, now) {
+        Ok(value) => (value, true),
+        Err(store::Damaged { error, kept }) => {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            let (line, writable) = match &kept {
+                Some(kept) => {
+                    let kept = kept.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                    (format!("{name} could not be read ({error}); it was kept as {kept} and a new one is started."), true)
+                }
+                None => (format!("{name} could not be read ({error}) nor moved aside; it is left as it is and not saved over until the world is reopened."), false),
+            };
+            log::error!("[deepbore_quarry] {}: {line}", path.display());
+            notices.push(format!("Deepbore Quarry: {line}"));
+            (T::default(), writable)
+        }
     }
 }
 
-/// Written whole and atomically: a temporary file beside it, then renamed over the old one.
-fn write_json<T: serde::Serialize>(path: &Path, value: &T) {
-    let write = || -> io::Result<()> {
-        let dir = path.parent().unwrap_or(Path::new("."));
-        fs::create_dir_all(dir)?;
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-        let temp = dir.join(format!(".{name}.tmp"));
-        {
-            let mut file = fs::File::create(&temp)?;
-            file.write_all(&serde_json::to_vec_pretty(value).map_err(io::Error::other)?)?;
-            file.sync_all()?;
-        }
-        fs::rename(&temp, path)
-    };
-    if let Err(e) = write() {
-        log::warn!("[deepbore_quarry] {}: {e}", path.display());
-    }
+/// Writes a world file and logs a failure; the caller keeps what it couldn't save.
+fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+    store::write_json(path, value).inspect_err(|e| {
+        log::error!("[deepbore_quarry] {} was not saved: {e}", path.display());
+    })
 }
 
 /// The state of the open world, read on first use and again when another world opens.
@@ -92,10 +100,16 @@ fn world(game: &Game<'_>) -> Option<MutexGuard<'static, Option<WorldState>>> {
     let dir = game.native_world_dir()?.join(rules::DIR);
     let mut state = WORLD.lock().unwrap_or_else(|e| e.into_inner());
     if state.as_ref().is_none_or(|s| s.dir != dir) {
+        let mut notices = Vec::new();
+        let (config, _) = read_json(&dir.join("config.json"), &mut notices);
+        let (loads, loads_writable) = read_json(&dir.join("loads.json"), &mut notices);
         *state = Some(WorldState {
-            config: read_json(&dir.join("config.json")),
-            loads: read_json(&dir.join("loads.json")),
+            config,
+            loads,
             loads_changed: false,
+            loads_blocked: !loads_writable,
+            loads_failing: false,
+            notices,
             commands: Vec::new(),
             woken: false,
             dir,
@@ -168,9 +182,21 @@ pub(in crate::game) fn server_tick(game: &mut Game<'_>, phase: ServerTickPhase) 
         }
     }
     if let Some(st) = WORLD.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-        if st.loads_changed {
-            write_json(&st.dir.join("loads.json"), &st.loads);
-            st.loads_changed = false;
+        if !st.loads_blocked {
+            let path = st.dir.join("loads.json");
+            // A failure leaves loads_changed set: the next tick tries again. It is
+            // logged once, when saving starts failing, and again when it works.
+            match store::save_if_changed(&mut st.loads_changed, || store::write_json(&path, &st.loads)) {
+                Err(e) if !st.loads_failing => {
+                    log::error!("[deepbore_quarry] {} was not saved, trying again each tick: {e}", path.display());
+                    st.loads_failing = true;
+                }
+                Ok(()) if st.loads_failing => {
+                    log::info!("[deepbore_quarry] {} is saved again", path.display());
+                    st.loads_failing = false;
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -217,6 +243,15 @@ pub(in crate::game) fn items(items: &mut Vec<Item>) {
 /// assets half, which brings the block's loot table, they hear what's missing and
 /// where to get it, in plain text, as the language files are gone too.
 pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) {
+    // A damaged world file, moved aside when the world opened: everyone who joins hears it.
+    let notices = world(game).and_then(|guard| guard.as_ref().map(|st| st.notices.clone()));
+    let red = Style {
+        color: Some(text::RED),
+        ..Style::default()
+    };
+    for line in notices.unwrap_or_default() {
+        game.native_tell(player, Text::styled(line, red.clone()));
+    }
     let registry = &game.pack.assets.registry;
     let assets = registry.default_state(rules::BLOCK).is_some_and(|state| {
         world_items!(game)
@@ -300,8 +335,10 @@ pub(in crate::game) fn perform(game: &mut Game<'_>, line: &str, ran: &mut bool) 
         (Some("maxsize"), Some(arg)) => match rules::parse_max_side(arg) {
             Some(side) => {
                 st.config.max_side = side;
-                write_json(&st.dir.join("config.json"), &st.config);
-                size_line(side)
+                match write_json(&st.dir.join("config.json"), &st.config) {
+                    Ok(()) => size_line(side),
+                    Err(e) => size_line(side).append(Text::literal(format!(" (not saved: {e})"))),
+                }
             }
             None => Text::translate("deepbore_quarry.maxsize.usage", &[]),
         },
