@@ -6,7 +6,7 @@
 GAME_FOLDER is a test instance's folder, VERSION the installed version it plays
 (native-...). The world `dbq-test` is left for a look; delete the instance when done.
 Scenarios: screen dig chest kept fluid save redstone limit hopper chunk draw waiting
-nether recipes russian deep. Without any, all of them.
+nether recipes russian deep migrate. Without any, all of them.
 """
 import json
 import os
@@ -25,6 +25,7 @@ SHOTS = os.path.join(GAME, "dbq-shots")
 os.makedirs(SHOTS, exist_ok=True)
 QUARRY, COAL = "deepbore_quarry:quarry", "minecraft:coal"
 WORLD = "dbq-test"
+FILES = os.path.join(GAME, "saves", WORLD, "horizon-deepbore-quarry")
 failed = []
 
 
@@ -346,6 +347,15 @@ def s_nether():
     check("the nether's quarry works after a reopen with nobody there", after >= before + 3, f"{before} then {after}")
 
 
+def held():
+    """The quarries' record of the chunks they hold with tickets (holds.json)."""
+    try:
+        with open(os.path.join(FILES, "holds.json"), encoding="utf-8") as f:
+            return json.load(f).get("holds", [])
+    except (OSError, ValueError):
+        return []
+
+
 def s_chunk():
     scene(900, 0)
     print(" operator's own:", chat("forceload add 900 0"))
@@ -355,7 +365,10 @@ def s_chunk():
     toggle(900, 0)
     ctl("close")
     ctl("wait", 40)
-    print(" forceload:", chat("forceload query"))
+    mine = [h for h in held() if h["key"][1] == [900, 151, 0]]
+    check("it holds its chunks with a ticket (holds.json)", bool(mine) and len(mine[0]["chunks"]) >= 2, str(held())[:200])
+    line = " ".join(chat("forceload query"))
+    check("not with /forceload: only the operator's chunk is forced", "56, -1" not in line and "56, 0" in line, line)
     a = chest_counts(900, 0).get("minecraft:smooth_stone", 0)
     chat("tp @s 5000 200 5000")
     ctl("wait", 200)
@@ -370,14 +383,50 @@ def s_chunk():
     print(" break:", str(ctl("break", 900, 151, 0))[:160])
     ctl("wait", 20)
     chat("gamemode creative")
+    check("broken: its ticket is let go", not [h for h in held() if h["key"][1] == [900, 151, 0]], str(held())[:200])
     line = " ".join(chat("forceload query"))
-    print(" forceload after:", line)
-    check("broken: its chunks are let go", "56, -1" not in line, line)
     check("an operator's own forced chunk stays", "56, 0" in line, line)
     chat("forceload remove 900 0")
     entities = json.dumps(ctl("entities"))
     check("broken: it drops itself", QUARRY in entities, entities[:300])
     check("broken: and its upgrade", "chunk_upgrade" in entities, entities[:300])
+
+
+def s_migrate():
+    """A world from 0.1.x: its loads.json and /forceloads move to tickets once."""
+    scene(1300, 0)
+    opened(1300, 0)
+    put(0, COAL, 16)
+    put(1, "deepbore_quarry:chunk_upgrade", 1)
+    toggle(1300, 0)
+    ctl("close")
+    ctl("wait", 40)
+    holds = [h for h in held() if h["key"][1] == [1300, 151, 0]]
+    chunks = holds[0]["chunks"] if holds else []
+    # What 0.1.x left: the chunks forced with /forceload, saved by the game, and loads.json.
+    for x, z in chunks:
+        chat(f"forceload add {x * 16} {z * 16}")
+    ctl("quit")
+    time.sleep(4)
+    with open(os.path.join(FILES, "loads.json"), "w", encoding="utf-8") as f:
+        json.dump({"holds": holds, "foreign": []}, f)
+    os.remove(os.path.join(FILES, "holds.json"))
+    launched()
+    ctl("wait", 40)
+    line = " ".join(chat("forceload query"))
+    check("the old /forceloads are released", not any(f"{x}, {z}" in line for x, z in chunks), line)
+    check("loads.json is kept as loads.json.migrated", os.path.exists(os.path.join(FILES, "loads.json.migrated"))
+          and not os.path.exists(os.path.join(FILES, "loads.json")))
+    check("its holds carry over to holds.json", [h["key"] for h in held()] == [h["key"] for h in holds], str(held())[:200])
+    a = chest_counts(1300, 0).get("minecraft:smooth_stone", 0)
+    chat("tp @s 6000 200 6000")
+    ctl("wait", 200)
+    chat("tp @s 1300.5 151 3.5")
+    ctl("wait", 40)
+    b = chest_counts(1300, 0).get("minecraft:smooth_stone", 0)
+    check("after the move it works while the player is away", b >= a + 3, f"{a} then {b}")
+    chat("setblock 1300 151 0 minecraft:air")
+    ctl("wait", 20)
 
 
 def s_draw():
@@ -491,6 +540,7 @@ SCENARIOS = {
     "screen": s_screen, "dig": s_dig, "chest": s_chest, "kept": s_kept, "fluid": s_fluid, "save": s_save,
     "redstone": s_redstone, "limit": s_limit, "hopper": s_hopper, "chunk": s_chunk, "draw": s_draw,
     "waiting": s_waiting, "nether": s_nether, "recipes": s_recipes, "russian": s_russian, "deep": s_deep,
+    "migrate": s_migrate,
 }
 
 
