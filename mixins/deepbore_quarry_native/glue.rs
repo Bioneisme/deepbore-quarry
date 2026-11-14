@@ -39,26 +39,29 @@ use std::{
 struct WorldState {
     dir: PathBuf,
     config: rules::Config,
+    /// The quarries holding chunk tickets (holds.json).
     loads: rules::Loads,
     /// Not yet saved. Cleared only by a save that succeeded, so a failed one is tried again.
     loads_changed: bool,
-    /// A damaged loads.json couldn't be moved aside: it isn't written over in this session.
+    /// A damaged holds.json couldn't be moved aside: it isn't written over in this session.
     loads_blocked: bool,
-    /// The last save of loads.json failed (logged once, not every tick).
+    /// The last save of holds.json failed (logged once, not every tick).
     loads_failing: bool,
     /// Said in chat at the next server tick: a world file was damaged.
     notices: Vec<String>,
-    /// Forced chunks to change at the end of the server tick: a player's click
-    /// and a block entity's tick can't run console commands.
-    commands: Vec<Force>,
-    /// The first tick of this world has run.
+    /// Ticket changes for the end of the server tick, where every level can be named.
+    tickets: Vec<Ticket>,
+    /// 0.1.x's own `/forceload`s, removed once at the first tick (from an old loads.json).
+    unforce: Vec<(String, [i32; 2])>,
+    /// The first tick of this world has run: the saved holds are tickets again.
     woken: bool,
 }
 
-struct Force {
+struct Ticket {
+    owner: String,
     dimension: String,
-    add: bool,
     chunk: [i32; 2],
+    hold: bool,
 }
 
 static WORLD: Mutex<Option<WorldState>> = Mutex::new(None);
@@ -102,15 +105,17 @@ fn world(game: &Game<'_>) -> Option<MutexGuard<'static, Option<WorldState>>> {
     if state.as_ref().is_none_or(|s| s.dir != dir) {
         let mut notices = Vec::new();
         let (config, _) = read_json(&dir.join("config.json"), &mut notices);
-        let (loads, loads_writable) = read_json(&dir.join("loads.json"), &mut notices);
+        let (mut loads, loads_writable) = read_json::<rules::Loads>(&dir.join(rules::HOLDS_FILE), &mut notices);
+        let (unforce, migrated) = migrate_old_loads(&dir, &mut loads, &mut notices);
         *state = Some(WorldState {
             config,
             loads,
-            loads_changed: false,
+            loads_changed: migrated,
             loads_blocked: !loads_writable,
             loads_failing: false,
             notices,
-            commands: Vec::new(),
+            tickets: Vec::new(),
+            unforce,
             woken: false,
             dir,
         });
@@ -118,13 +123,50 @@ fn world(game: &Game<'_>) -> Option<MutexGuard<'static, Option<WorldState>>> {
     Some(state)
 }
 
-fn forceload(commands: &mut Vec<Force>, dimension: &str, change: rules::Change) {
-    for (add, chunks) in [(true, change.add), (false, change.remove)] {
+/// A loads.json from 0.1.x, which forced chunks with `/forceload`: its holds become
+/// tickets, its own forced chunks are returned to be removed once, and the file is
+/// renamed loads.json.migrated. True when holds.json is to be saved.
+fn migrate_old_loads(
+    dir: &Path,
+    loads: &mut rules::Loads,
+    notices: &mut Vec<String>,
+) -> (Vec<(String, [i32; 2])>, bool) {
+    let path = dir.join(rules::OLD_LOADS_FILE);
+    if !path.exists() {
+        return (Vec::new(), false);
+    }
+    let (old, _) = read_json::<rules::OldLoads>(&path, notices);
+    let (holds, unforce) = rules::migrate(old);
+    let carry = *loads == rules::Loads::default() && holds != rules::Loads::default();
+    if carry {
+        *loads = holds;
+    }
+    let done = dir.join(format!("{}.migrated", rules::OLD_LOADS_FILE));
+    match std::fs::rename(&path, &done) {
+        Ok(()) => log::info!(
+            "[deepbore_quarry] {} moved to chunk tickets ({} forced chunk(s) to release); kept as {}",
+            path.display(),
+            unforce.len(),
+            done.display()
+        ),
+        Err(e) => log::error!(
+            "[deepbore_quarry] {} could not be renamed after moving to chunk tickets: {e}",
+            path.display()
+        ),
+    }
+    (unforce, carry)
+}
+
+/// Queues a quarry's ticket change for the end of the server tick.
+fn ticket(tickets: &mut Vec<Ticket>, key: &rules::Key, change: rules::Change) {
+    let owner = rules::ticket_owner(key);
+    for (hold, chunks) in [(true, change.add), (false, change.remove)] {
         for chunk in chunks {
-            commands.push(Force {
-                dimension: dimension.to_owned(),
-                add,
+            tickets.push(Ticket {
+                owner: owner.clone(),
+                dimension: key.0.clone(),
                 chunk,
+                hold,
             });
         }
     }
@@ -135,55 +177,34 @@ pub(in crate::game) fn server_tick(game: &mut Game<'_>, phase: ServerTickPhase) 
     if !matches!(phase, ServerTickPhase::ServerTickEnd { .. }) {
         return;
     }
-    let (commands, wake) = {
+    let (tickets, unforce, wake) = {
         let Some(mut guard) = world(game) else {
             return;
         };
         let st = guard.as_mut().expect("opened");
-        let wake = if st.woken {
-            Vec::new()
-        } else {
-            st.loads.dimensions()
-        };
+        // Tickets aren't saved: at the first tick the saved holds are taken again.
+        // `native_force_chunk_in` names the level, so a level nobody is in opens and ticks.
+        let wake = if st.woken { Vec::new() } else { st.loads.tickets() };
         st.woken = true;
-        (std::mem::take(&mut st.commands), wake)
+        (std::mem::take(&mut st.tickets), std::mem::take(&mut st.unforce), wake)
     };
-    // A level no player has entered isn't open, so the chunks it forces wouldn't
-    // tick and its quarries would wait for a visitor. A command in it opens it.
-    for dimension in wake {
-        game.native_run_command(&format!("execute in {dimension} run forceload query"));
+    for (owner, dimension, chunk) in wake {
+        game.native_force_chunk_in(&owner, &dimension, chunk, true);
     }
-    for force in commands {
-        let [x, z] = force.chunk;
-        let dimension = &force.dimension;
-        if !force.add {
-            let mut guard = WORLD.lock().unwrap_or_else(|e| e.into_inner());
-            let ours = guard
-                .as_mut()
-                .is_none_or(|st| st.loads.take_ours(dimension, force.chunk));
-            drop(guard);
-            if ours {
-                game.native_run_command(&format!(
-                    "execute in {dimension} run forceload remove {} {}",
-                    x * 16,
-                    z * 16
-                ));
-            }
-        } else if !game.native_run_command(&format!(
-            "execute in {dimension} run forceload add {} {}",
+    // A world from 0.1.x: its own /forceloads go, once; the quarries hold tickets now.
+    for (dimension, [x, z]) in unforce {
+        game.native_run_command(&format!(
+            "execute in {dimension} run forceload remove {} {}",
             x * 16,
             z * 16
-        )) {
-            // Already forced, by an operator or a command block: it stays when we let go.
-            if let Some(st) = WORLD.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-                st.loads.not_ours(dimension, force.chunk);
-                st.loads_changed = true;
-            }
-        }
+        ));
+    }
+    for t in tickets {
+        game.native_force_chunk_in(&t.owner, &t.dimension, t.chunk, t.hold);
     }
     if let Some(st) = WORLD.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
         if !st.loads_blocked {
-            let path = st.dir.join("loads.json");
+            let path = st.dir.join(rules::HOLDS_FILE);
             // A failure leaves loads_changed set: the next tick tries again. It is
             // logged once, when saving starts failing, and again when it works.
             match store::save_if_changed(&mut st.loads_changed, || store::write_json(&path, &st.loads)) {
@@ -238,10 +259,10 @@ pub(in crate::game) fn items(items: &mut Vec<Item>) {
     }
 }
 
-/// A player joins. The assets half, if it's there, reads the tag to know this
-/// half is too (content/data/deepbore_quarry/function/check.mcfunction). Without the
-/// assets half, which brings the block's loot table, they hear what's missing and
-/// where to get it, in plain text, as the language files are gone too.
+/// A player joins. The content, if it loaded, reads the tag to know the code is
+/// there too (content/data/deepbore_quarry/function/check.mcfunction). Without the
+/// content, which brings the block's loot table, they hear that it didn't load and
+/// where the mod is, in plain text, as the language files are gone too.
 pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) {
     // A damaged world file, moved aside when the world opened: everyone who joins hears it.
     let notices = world(game).and_then(|guard| guard.as_ref().map(|st| st.notices.clone()));
@@ -262,7 +283,7 @@ pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) 
         game.native_run_command(&format!("tag {name} add deepbore_quarry.native"));
         return;
     }
-    const ASSETS_PAGE: &str = "https://playhorizon.dev/mods/deepbore_quarry";
+    const ASSETS_PAGE: &str = "https://playhorizon.dev/mods/deepbore_quarry_native";
     let link = Style {
         color: Some(text::AQUA),
         underlined: Some(true),
@@ -270,8 +291,8 @@ pub(in crate::game) fn logged_in(game: &mut Game<'_>, player: u128, name: &str) 
         ..Style::default()
     };
     for line in [
-        "Deepbore Quarry: the assets mod is missing. Install deepbore_quarry too: ",
-        "Deepbore Quarry: не установлен мод с ассетами. Поставьте ещё deepbore_quarry: ",
+        "Deepbore Quarry: its content (textures, text, recipes) didn't load. Rebuild or reinstall the mod: ",
+        "Deepbore Quarry: не загрузился контент мода (текстуры, текст, рецепты). Пересоберите или переустановите мод: ",
     ] {
         let line = Text::literal(line).append(Text::styled(ASSETS_PAGE, link.clone()));
         game.native_tell(player, line);
@@ -455,7 +476,7 @@ pub(in crate::game) fn block_changed(
     let key = (dimension.to_owned(), [pos.x, pos.y, pos.z]);
     if st.loads.holds(&key) {
         let change = st.loads.release(&key);
-        forceload(&mut st.commands, dimension, change);
+        ticket(&mut st.tickets, &key, change);
         st.loads_changed = true;
     }
 }
@@ -666,7 +687,7 @@ fn hold_chunks(
     if !(quarry.on && upgrades.chunk && quarry.cursor.is_some()) {
         if st.loads.holds(&key) {
             let change = st.loads.release(&key);
-            forceload(&mut st.commands, dimension, change);
+            ticket(&mut st.tickets, &key, change);
             st.loads_changed = true;
         }
         return false;
@@ -675,7 +696,7 @@ fn hold_chunks(
     match st.loads.hold(quarry.owner, &key, chunks) {
         Some(change) => {
             if !change.add.is_empty() || !change.remove.is_empty() {
-                forceload(&mut st.commands, dimension, change);
+                ticket(&mut st.tickets, &key, change);
                 st.loads_changed = true;
             }
             false

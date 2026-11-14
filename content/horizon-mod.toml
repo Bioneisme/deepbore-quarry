@@ -1,6 +1,6 @@
 id = "deepbore_quarry"
 name = "Deepbore Quarry (assets)"
-version = "0.1.2"
+version = "0.2.0"
 description = "Textures, models, text, recipes and the screen's menu for the Deepbore Quarry native mod, which declares the block and the items. Install both."
 authors = ["bioneisme"]
 api = "0.2"

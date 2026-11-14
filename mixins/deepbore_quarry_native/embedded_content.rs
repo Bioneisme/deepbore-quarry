@@ -4,6 +4,7 @@
 fn deepbore_quarry_embedded_content(
     root: &std::path::Path,
     enabled: &std::collections::BTreeSet<String>,
+    disabled: &std::collections::BTreeSet<String>,
     dev: &[std::path::PathBuf],
 ) -> core::ops::ControlFlow<std::path::PathBuf> {
     static CONTENT: &[u8] = horizon_client::native_data!("deepbore_quarry_native", "deepbore_quarry-content.hmod");
@@ -19,5 +20,5 @@ fn deepbore_quarry_embedded_content(
     }
     let mut with = dev.to_vec();
     with.push(file);
-    core::ops::ControlFlow::Break(content_root(root, enabled, &with))
+    core::ops::ControlFlow::Break(content_root(root, enabled, disabled, &with))
 }

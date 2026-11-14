@@ -14,13 +14,15 @@ export RUSTUP_HOME=$B/rustup CARGO_HOME=$B/cargo PATH=$B/cargo/bin:$B/uv:$B/tool
 export UV_PYTHON_INSTALL_DIR=$B/python UV_CACHE_DIR=$B/uv-cache
 export NATIVE_NO_DEFAULT_FEATURES=1 CARGO_BUILD_JOBS=4
 DATA=$SRC/mixins/$ID/data/deepbore_quarry-content.hmod
+WORK=$B/content-deepbore_quarry
 mkdir -p "$SRC/dist" "$(dirname "$DATA")"
 # The content mod, built from content/ and carried in the bundle's data/ (native_data!).
 content_mod() {
-  rm -rf "$B/content"
-  cp -r "$SRC/content" "$B/content"
-  (cd "$B/content" && cargo horizon-mod build 2>&1 | tail -n 4) || exit 1
-  cp "$B/content/target/horizon-mod/"*.hmod "$SRC/dist/deepbore_quarry.hmod"
+  rm -rf "$WORK"
+  cp -r "$SRC/content" "$WORK"
+  rm -rf "$WORK/target"
+  (cd "$WORK" && cargo horizon-mod build 2>&1 | tail -n 4) || exit 1
+  cp "$WORK/target/horizon-mod/"*.hmod "$SRC/dist/deepbore_quarry.hmod"
   cp "$SRC/dist/deepbore_quarry.hmod" "$DATA"
 }
 case "${1:-check}" in
@@ -29,7 +31,7 @@ case "${1:-check}" in
 esac
 cd "$B/horizon-mods" || exit 1
 mkdir -p "native/$ID"
-rsync -a --delete --exclude target --exclude content --exclude dist --exclude docs --exclude tools --exclude .git "$SRC/" "native/$ID/"
+rsync -a --delete --exclude target --exclude content --exclude dist --exclude docs --exclude tools --exclude publish --exclude .git "$SRC/" "native/$ID/"
 PY="$(uv python find 3.12)"
 case "${1:-check}" in
   check)

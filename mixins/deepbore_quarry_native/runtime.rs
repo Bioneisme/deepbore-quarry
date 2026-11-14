@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const ID: &str = "deepbore_quarry_native";
-pub const VERSION: &str = "0.1.2";
+pub const VERSION: &str = "0.2.0";
 /// The folder in the world's folder.
 pub const DIR: &str = "horizon-deepbore-quarry";
 pub const BLOCK: &str = "deepbore_quarry:quarry";
@@ -409,6 +409,12 @@ pub fn status_code(action: &Action) -> i32 {
 
 // ---- chunks kept loaded, and the server's limit ----------------------------
 
+/// The world's record of the quarries holding chunks (Horizon's chunk tickets
+/// aren't saved, so a reopened world holds these again).
+pub const HOLDS_FILE: &str = "holds.json";
+/// 0.1.x kept its forced chunks here, as `/forceload`s.
+pub const OLD_LOADS_FILE: &str = "loads.json";
+
 /// A quarry: its dimension and position.
 pub type Key = (String, [i32; 3]);
 
@@ -419,28 +425,28 @@ struct Hold {
     chunks: Vec<[i32; 2]>,
 }
 
-/// The quarries keeping chunks loaded in a world.
+/// The quarries keeping chunks loaded in a world, each under its own ticket.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Loads {
     holds: Vec<Hold>,
-    /// Chunks that were already forced when a quarry asked: an operator's, not ours to remove.
-    #[serde(default)]
-    foreign: Vec<(String, [i32; 2])>,
 }
 
-/// What to do to the world's forced chunks, in the quarry's dimension.
+/// What to do to one quarry's ticket, in the quarry's dimension.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Change {
     pub add: Vec<[i32; 2]>,
     pub remove: Vec<[i32; 2]>,
 }
 
+/// The chunk ticket owner a quarry holds its chunks under: its place, so it is the
+/// same after a restart (`deepbore_quarry:quarry/overworld/0,64,0`).
+pub fn ticket_owner(key: &Key) -> String {
+    let dimension = key.0.strip_prefix("minecraft:").unwrap_or(&key.0);
+    let [x, y, z] = key.1;
+    format!("deepbore_quarry:quarry/{dimension}/{x},{y},{z}")
+}
+
 impl Loads {
-    fn held_by_others(&self, key: &Key, chunk: [i32; 2]) -> bool {
-        self.holds
-            .iter()
-            .any(|h| h.key != *key && h.key.0 == key.0 && h.chunks.contains(&chunk))
-    }
     /// The quarry at `key` wants `chunks` loaded; none when its owner already
     /// has another quarry doing so.
     pub fn hold(&mut self, owner: u128, key: &Key, chunks: Vec<[i32; 2]>) -> Option<Change> {
@@ -453,16 +459,8 @@ impl Loads {
             .find(|h| h.key == *key)
             .map_or_else(Vec::new, |h| h.chunks.clone());
         let change = Change {
-            add: chunks
-                .iter()
-                .filter(|c| !before.contains(c) && !self.held_by_others(key, **c))
-                .copied()
-                .collect(),
-            remove: before
-                .iter()
-                .filter(|c| !chunks.contains(c) && !self.held_by_others(key, **c))
-                .copied()
-                .collect(),
+            add: chunks.iter().filter(|c| !before.contains(c)).copied().collect(),
+            remove: before.iter().filter(|c| !chunks.contains(c)).copied().collect(),
         };
         self.holds.retain(|h| h.key != *key);
         self.holds.push(Hold {
@@ -472,48 +470,55 @@ impl Loads {
         });
         Some(change)
     }
+    /// The quarry at `key` lets go of everything its ticket holds.
     pub fn release(&mut self, key: &Key) -> Change {
         let Some(at) = self.holds.iter().position(|h| h.key == *key) else {
             return Change::default();
         };
-        let hold = self.holds.remove(at);
         Change {
             add: Vec::new(),
-            remove: hold
-                .chunks
-                .into_iter()
-                .filter(|c| !self.held_by_others(key, *c))
-                .collect(),
+            remove: self.holds.remove(at).chunks,
         }
     }
     pub fn holds(&self, key: &Key) -> bool {
         self.holds.iter().any(|h| h.key == *key)
     }
-    /// Forcing `chunk` changed nothing: somebody else had forced it.
-    pub fn not_ours(&mut self, dimension: &str, chunk: [i32; 2]) {
-        self.foreign.push((dimension.to_owned(), chunk));
-    }
-    /// Whether the mod may remove `chunk`; asking forgets that it was somebody else's.
-    pub fn take_ours(&mut self, dimension: &str, chunk: [i32; 2]) -> bool {
-        match self
-            .foreign
+    /// Every ticket to take again when the world opens: owner, dimension, chunk.
+    pub fn tickets(&self) -> Vec<(String, String, [i32; 2])> {
+        self.holds
             .iter()
-            .position(|(d, c)| d == dimension && *c == chunk)
-        {
-            Some(at) => {
-                self.foreign.remove(at);
-                false
-            }
-            None => true,
-        }
+            .flat_map(|h| {
+                let owner = ticket_owner(&h.key);
+                h.chunks
+                    .iter()
+                    .map(move |c| (owner.clone(), h.key.0.clone(), *c))
+            })
+            .collect()
     }
-    /// The dimensions with a quarry keeping chunks loaded.
-    pub fn dimensions(&self) -> Vec<String> {
-        let mut all: Vec<String> = self.holds.iter().map(|h| h.key.0.clone()).collect();
-        all.sort_unstable();
-        all.dedup();
-        all
-    }
+}
+
+/// A `loads.json` from 0.1.x: the quarries' holds, and the chunks that were forced
+/// by someone else when a quarry asked.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct OldLoads {
+    holds: Vec<Hold>,
+    #[serde(default)]
+    foreign: Vec<(String, [i32; 2])>,
+}
+
+/// 0.1.x forced chunks with `/forceload`; 0.2 holds chunk tickets. The holds carry
+/// over as tickets, and the mod's own forced chunks are to be removed once (each
+/// once, sorted); someone else's stay forced.
+pub fn migrate(old: OldLoads) -> (Loads, Vec<(String, [i32; 2])>) {
+    let mut unforce: Vec<(String, [i32; 2])> = old
+        .holds
+        .iter()
+        .flat_map(|h| h.chunks.iter().map(|c| (h.key.0.clone(), *c)))
+        .filter(|chunk| !old.foreign.contains(chunk))
+        .collect();
+    unforce.sort_unstable();
+    unforce.dedup();
+    (Loads { holds: old.holds }, unforce)
 }
 
 /// The server's setting, in the world's folder.
@@ -952,12 +957,13 @@ mod load_tests {
         assert_eq!((c.add, c.remove), (vec![[0, 2]], vec![[0, 0]]));
     }
     #[test]
-    fn shared_chunk_stays_until_the_last_holder() {
+    fn each_quarry_holds_its_own_ticket() {
         let mut l = Loads::default();
         let (a, b) = (at([0, 64, 0]), at([9, 64, 0]));
         l.hold(1, &a, vec![[0, 0]]);
         l.hold(2, &b, vec![[0, 0], [1, 0]]);
-        assert!(l.release(&a).remove.is_empty());
+        // Tickets have owners: letting go of a's leaves b's ticket on the same chunk.
+        assert_eq!(l.release(&a).remove, vec![[0, 0]]);
         assert_eq!(l.release(&b).remove, vec![[0, 0], [1, 0]]);
         assert!(l.release(&b).remove.is_empty());
     }
@@ -1064,48 +1070,9 @@ mod review_tests {
         }
     }
     #[test]
-    fn a_chunk_already_forced_is_left_alone() {
-        let mut l = Loads::default();
-        let key = ("minecraft:overworld".to_string(), [0, 64, 0]);
-        l.hold(1, &key, vec![[0, 0], [0, 1]]);
-        l.not_ours("minecraft:overworld", [0, 0]);
-        // The operator's chunk stays forced when the quarry lets go; the mod's goes.
-        assert!(!l.take_ours("minecraft:overworld", [0, 0]));
-        assert!(l.take_ours("minecraft:overworld", [0, 1]));
-        // Once: a later quarry's own hold of that chunk is the mod's again.
-        assert!(l.take_ours("minecraft:overworld", [0, 0]));
-        assert!(l.take_ours("minecraft:the_nether", [0, 0]));
-    }
-    #[test]
     fn old_files_still_read() {
         let l: Loads = serde_json::from_str(r#"{"holds":[]}"#).unwrap();
         assert_eq!(l, Loads::default());
-    }
-    #[test]
-    fn dimensions_of_the_holds() {
-        let mut l = Loads::default();
-        l.hold(
-            1,
-            &("minecraft:the_nether".to_string(), [0, 64, 0]),
-            vec![[0, 0]],
-        );
-        l.hold(
-            2,
-            &("minecraft:the_nether".to_string(), [9, 64, 0]),
-            vec![[1, 0]],
-        );
-        l.hold(
-            3,
-            &("minecraft:the_end".to_string(), [0, 64, 0]),
-            vec![[0, 0]],
-        );
-        assert_eq!(
-            l.dimensions(),
-            vec![
-                "minecraft:the_end".to_string(),
-                "minecraft:the_nether".to_string()
-            ]
-        );
     }
     #[test]
     fn time_stays_fine_on_old_worlds() {
@@ -1178,5 +1145,75 @@ mod store_tests {
         // The next save writes a new loads.json and the damaged one stays.
         write_json(&path, &Loads::default()).unwrap();
         assert_eq!(fs::read(&kept).unwrap(), b"{ not json");
+    }
+}
+
+#[cfg(test)]
+mod ticket_tests {
+    use super::*;
+
+    fn at(dimension: &str, pos: [i32; 3]) -> Key {
+        (dimension.to_string(), pos)
+    }
+
+    #[test]
+    fn a_quarry_owns_its_ticket_by_its_place() {
+        assert_eq!(
+            ticket_owner(&at("minecraft:overworld", [-3, 64, 120])),
+            "deepbore_quarry:quarry/overworld/-3,64,120"
+        );
+        assert_eq!(
+            ticket_owner(&at("minecraft:the_nether", [0, 32, 0])),
+            "deepbore_quarry:quarry/the_nether/0,32,0"
+        );
+    }
+    #[test]
+    fn tickets_are_taken_again_when_the_world_opens() {
+        let mut l = Loads::default();
+        let (a, n) = (at("minecraft:overworld", [0, 64, 0]), at("minecraft:the_nether", [9, 64, 0]));
+        l.hold(1, &a, vec![[0, 0], [0, 1]]);
+        l.hold(2, &n, vec![[1, 0]]);
+        // Tickets aren't saved: the record is what a reopened world holds again.
+        let reopened: Loads = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
+        assert_eq!(
+            reopened.tickets(),
+            vec![
+                (ticket_owner(&a), "minecraft:overworld".to_string(), [0, 0]),
+                (ticket_owner(&a), "minecraft:overworld".to_string(), [0, 1]),
+                (ticket_owner(&n), "minecraft:the_nether".to_string(), [1, 0]),
+            ]
+        );
+    }
+    #[test]
+    fn an_old_loads_file_moves_to_tickets() {
+        // 0.1.x: two quarries, one chunk shared, one chunk an operator had forced already.
+        let old: OldLoads = serde_json::from_str(
+            r#"{"holds":[
+                {"owner":1,"key":["minecraft:overworld",[0,64,0]],"chunks":[[0,0],[0,1]]},
+                {"owner":2,"key":["minecraft:the_end",[5,60,5]],"chunks":[[0,0]]},
+                {"owner":3,"key":["minecraft:overworld",[9,64,0]],"chunks":[[0,1],[1,1]]}
+            ],"foreign":[["minecraft:overworld",[1,1]]]}"#,
+        )
+        .unwrap();
+        let (loads, unforce) = migrate(old);
+        // The holds carry over, so the quarries keep their chunks as tickets...
+        assert!(loads.holds(&at("minecraft:overworld", [0, 64, 0])));
+        assert_eq!(loads.tickets().len(), 5);
+        // ...and the mod's own /forceload is removed once, each chunk once; the operator's stays.
+        assert_eq!(
+            unforce,
+            vec![
+                ("minecraft:overworld".to_string(), [0, 0]),
+                ("minecraft:overworld".to_string(), [0, 1]),
+                ("minecraft:the_end".to_string(), [0, 0]),
+            ]
+        );
+    }
+    #[test]
+    fn an_old_file_without_operators_chunks_still_reads() {
+        let old: OldLoads = serde_json::from_str(r#"{"holds":[]}"#).unwrap();
+        let (loads, unforce) = migrate(old);
+        assert_eq!(loads, Loads::default());
+        assert!(unforce.is_empty());
     }
 }

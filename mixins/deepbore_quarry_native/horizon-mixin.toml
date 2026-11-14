@@ -1,12 +1,14 @@
 [mod]
 id = "deepbore_quarry_native"
-version = "0.1.2"
+version = "0.2.0"
 priority = 100
 
-# The Horizon source this bundle is planned and built on: Nightly 2026-11-04.
-# It needs API 309 (`native_menu_quick_move`).
+# The Horizon source this bundle is planned and built on: Nightly 2026-11-13
+# (`nightly-source/2026-11-13-9f42064`). It needs API 415: chunk tickets (`native_force_chunk_in`, API 413)
+# and the embedded-content injection's `content_root(root, enabled, disabled, dev)`, which Horizon has from
+# #11083 on (the first Nightly with it is 9f42064, API 415), so it never builds on an older one.
 [compatibility]
-horizon_revision = "67dad0d1a5adca139b426c8114e74a33b376ba64"
+horizon_revision = "9f42064c11efe7ef3e5ed2baad7ddc2a3b36eea0"
 
 # The rules: no game type, also the mod's Cargo library (its tests).
 [[module]]
@@ -33,6 +35,7 @@ helper = "embedded_content.rs"
 bindings = [
   { name = "root", ty = "&std::path::Path", value = "root" },
   { name = "enabled", ty = "&std::collections::BTreeSet<String>", value = "enabled" },
+  { name = "disabled", ty = "&std::collections::BTreeSet<String>", value = "disabled" },
   { name = "dev", ty = "&[std::path::PathBuf]", value = "dev" },
 ]
 

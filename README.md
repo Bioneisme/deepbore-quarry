@@ -48,7 +48,7 @@ A quarry has four upgrade slots, so you choose what it is good at.
 | Area | 3 | 5×5, then 9×9, 13×13 and 17×17 |
 | Speed | 3 | A block in 2 s, then 1 s, 0.5 s and 0.25 s |
 | Fluids | 1 | Plugs water and lava with cobblestone and digs on, instead of stopping |
-| Chunk | 1 | Keeps working when you are away, one quarry per player |
+| Chunk | 1 | Keeps working when you are away, one quarry per player: it holds its chunks with a chunk ticket |
 
 A different area starts the pit again from the top. The cells already empty cost nothing.
 
@@ -93,7 +93,9 @@ world's folder.
 ## Good to know
 
 - Every player needs the mod. It runs with your account's permissions, as every native mod does.
-- It is pinned to Horizon Nightly 2026-11-04 (67dad0d).
+- It is pinned to Horizon Nightly 2026-11-13 (9f42064).
+- A world from 0.1.x moves over by itself: the chunks its quarries forced with `/forceload` are released once,
+  the quarries hold chunk tickets instead, and `loads.json` is kept as `loads.json.migrated`.
 - The gantry is drawn while you are within 64 blocks of the quarry, so it is gone from the bottom of a very deep pit.
 - Torches, ladders and doors on what the quarry digs can fall to the ground with their support.
 - A container from another mod takes the drops only if its name ends in `chest`, `barrel` or `shulker_box`.

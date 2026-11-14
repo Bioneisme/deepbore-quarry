@@ -1,6 +1,6 @@
 # What the game's API turned out to be
 
-Pinned on Nightly 67dad0d (API 359), horizon-mixins e8cd0aa.
+Pinned on Nightly 9f42064 (API 415), horizon-mixins 5a64af9.
 
 - **Template:** `minecraft:furnace`. It opens a menu, and its `facing` points at the placer. The pit lies the opposite way.
 - **Checks reject dead code:** `native.py check` builds with `-D warnings`, so anything in `runtime.rs` used only by tests needs `#[cfg(test)]`. `runtime.rs` can't have file attributes, `//!` comments included.
@@ -9,6 +9,19 @@ Pinned on Nightly 67dad0d (API 359), horizon-mixins e8cd0aa.
 - **Sounds and particles** are on `GameLevel`: use `game.with_level(|_, level, _| ...)`.
 - **Light:** `draw.light` is the block's own, dark inside an opaque block. Set it from the air above.
 - **64 blocks:** the whole block entity drawing stops when the camera is more than 64 blocks from the quarry block. The bounds can't change that.
+- **Embedded content:** the content mod rides in the bundle's `data/` (`native_data!`) and an injection at the
+  head of `game::mods::content_root` hands it to the game as a dev mod. On 9f42064 (Horizon #11083) that function
+  takes `(root, enabled, disabled, dev)`, so the injection binds `disabled` too, and `hooks` is 415 so the launcher
+  never builds it on an older Horizon. #11083 also lets a native `.hmod` carry the content beside the code
+  (`native-content/<id>/`), but on 2026-11-14 launcher 0.2.61 didn't put that content into the build (raw keys in
+  the game, found on Wayfarer Stones), so the mod stays an `.hnmod`.
+- **Chunk tickets (API 412/413, Horizon #12046):** `native_force_chunk_in(owner, dimension, chunk, hold)` holds a
+  chunk loaded and ticking for an owner string; `/forceload` neither lists nor releases it. Tickets aren't saved, so
+  `holds.json` keeps what each quarry holds and the first server tick takes it again (naming the level opens one
+  nobody is in). Each quarry has its own owner (`deepbore_quarry:quarry/<dimension>/<x>,<y>,<z>`), so two quarries
+  on one chunk don't need the old bookkeeping of who forced what.
+- **`native_player_break_block` (#12259)** breaks as an online player, wears their held item and counts their
+  exhaustion. A quarry digs while its owner is away or offline, so it keeps its own drops.
 - **Internals that may change with a revision:** `Providers::burn_time`, `Items::block_drops`, `Items::block_loot_table`, `StateFacts`. All in one section of `glue.rs`.
 
 ## Building and checking
