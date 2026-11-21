@@ -3,8 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const ID: &str = "deepbore_quarry_native";
-pub const VERSION: &str = "0.3.0";
 /// The folder in the world's folder.
 pub const DIR: &str = "horizon-deepbore-quarry";
 pub const BLOCK: &str = "deepbore_quarry:quarry";
@@ -438,14 +436,6 @@ pub struct Change {
     pub remove: Vec<[i32; 2]>,
 }
 
-/// The chunk ticket owner a quarry holds its chunks under: its place, so it is the
-/// same after a restart (`deepbore_quarry:quarry/overworld/0,64,0`).
-pub fn ticket_owner(key: &Key) -> String {
-    let dimension = key.0.strip_prefix("minecraft:").unwrap_or(&key.0);
-    let [x, y, z] = key.1;
-    format!("deepbore_quarry:quarry/{dimension}/{x},{y},{z}")
-}
-
 impl Loads {
     /// The quarry at `key` wants `chunks` loaded; none when its owner already
     /// has another quarry doing so.
@@ -483,16 +473,12 @@ impl Loads {
     pub fn holds(&self, key: &Key) -> bool {
         self.holds.iter().any(|h| h.key == *key)
     }
-    /// Every ticket to take again when the world opens: owner, dimension, chunk.
-    pub fn tickets(&self) -> Vec<(String, String, [i32; 2])> {
+    /// Every ticket to take again when the world opens: dimension, quarry, chunk. A quarry holds
+    /// its chunks under its own place, so the ticket is the same after a restart.
+    pub fn tickets(&self) -> Vec<(String, [i32; 3], [i32; 2])> {
         self.holds
             .iter()
-            .flat_map(|h| {
-                let owner = ticket_owner(&h.key);
-                h.chunks
-                    .iter()
-                    .map(move |c| (owner.clone(), h.key.0.clone(), *c))
-            })
+            .flat_map(|h| h.chunks.iter().map(move |c| (h.key.0.clone(), h.key.1, *c)))
             .collect()
     }
 }
@@ -1157,17 +1143,6 @@ mod ticket_tests {
     }
 
     #[test]
-    fn a_quarry_owns_its_ticket_by_its_place() {
-        assert_eq!(
-            ticket_owner(&at("minecraft:overworld", [-3, 64, 120])),
-            "deepbore_quarry:quarry/overworld/-3,64,120"
-        );
-        assert_eq!(
-            ticket_owner(&at("minecraft:the_nether", [0, 32, 0])),
-            "deepbore_quarry:quarry/the_nether/0,32,0"
-        );
-    }
-    #[test]
     fn tickets_are_taken_again_when_the_world_opens() {
         let mut l = Loads::default();
         let (a, n) = (at("minecraft:overworld", [0, 64, 0]), at("minecraft:the_nether", [9, 64, 0]));
@@ -1177,10 +1152,11 @@ mod ticket_tests {
         let reopened: Loads = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
         assert_eq!(
             reopened.tickets(),
+            // Each ticket is the quarry's own, by its place: dimension, quarry, chunk.
             vec![
-                (ticket_owner(&a), "minecraft:overworld".to_string(), [0, 0]),
-                (ticket_owner(&a), "minecraft:overworld".to_string(), [0, 1]),
-                (ticket_owner(&n), "minecraft:the_nether".to_string(), [1, 0]),
+                ("minecraft:overworld".to_string(), [0, 64, 0], [0, 0]),
+                ("minecraft:overworld".to_string(), [0, 64, 0], [0, 1]),
+                ("minecraft:the_nether".to_string(), [9, 64, 0], [1, 0]),
             ]
         );
     }
