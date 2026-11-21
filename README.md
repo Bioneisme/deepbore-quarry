@@ -3,9 +3,9 @@
 A mod for [Horizon](https://github.com/horizon-rust/horizon) (Minecraft: Java Edition 26.3 in Rust). A machine that digs a
 square pit down to bedrock on furnace fuel and fills a chest beside it, under a moving gantry with a drill.
 
-> **Install one mod:** `deepbore_quarry_native` on the launcher's Mods page, then press Build. Since 0.1.1 its
-> textures, text and recipes ride inside it, so the separate `deepbore_quarry` (assets) entry is no longer needed. It
-> does no harm if you already have it: the installed copy is used.
+> **Install one mod:** `deepbore_quarry_native` on the launcher's Mods page, then press Build. From 0.3.0 it is one
+> native package on Horizon's mod API, with its textures, text and recipes inside it. If you still have the separate
+> `deepbore_quarry` (assets), remove it: both use the `deepbore_quarry` namespace, and the game keeps only one of them.
 
 ![A quarry at work: a yellow gantry over a deep square pit in a meadow, with the machine and its chest at the edge](docs/images/quarry.jpg)
 
@@ -93,7 +93,12 @@ world's folder.
 ## Good to know
 
 - Every player needs the mod. It runs with your account's permissions, as every native mod does.
-- It is pinned to Horizon Nightly 2026-11-13 (9f42064).
+- 0.3.0 is built on Horizon Nightly 2026-11-21 (8f83e5c), the first with the mod SDK. A world from 0.2 should keep
+  its quarries, since what is saved is the same (the block entity `deepbore_quarry:quarry`, its slots, its state and
+  `horizon-deepbore-quarry/` in the world), and the chunks the quarries held are taken again when the world opens.
+  Back up a world you care about before the first open.
+- A chunk-upgraded quarry in the Nether or the End keeps working with nobody there, also after the world reopens:
+  the mod opens such a level as the world opens (Horizon opens those levels only when someone goes there).
 - A world from 0.1.x moves over by itself: the chunks its quarries forced with `/forceload` are released once,
   the quarries hold chunk tickets instead, and `loads.json` is kept as `loads.json.migrated`.
 - The gantry is drawn while you are within 64 blocks of the quarry, so it is gone from the bottom of a very deep pit.
@@ -103,6 +108,22 @@ world's folder.
 
 The text is in English and Russian, following the game's language. All the art is original, and no Minecraft code or
 assets are included.
+
+## Build
+
+The package is the `deepbore_quarry/` folder: `horizon-mod.toml`, `Cargo.toml`, `src/`, `assets/` and `data/`. The
+repository's tools and pictures stay outside it, since a package takes only its own files.
+
+```sh
+cd deepbore_quarry && cargo test                # the rules
+horizon-launcher native-build deepbore_quarry --instance NAME --trust-native-code
+cd deepbore_quarry && cargo horizon-mod build   # target/horizon-mod/deepbore_quarry_native.hmod
+python tools/ingame_test.py GAME_FOLDER INSTANCE VERSION [SCENARIO ...]   # in the game, through the launcher's Play
+```
+
+Any `cargo horizon-mod` command fetches the pinned SDK into `deepbore_quarry/.horizon/sdk/` (never committed).
+`Cargo.lock` holds registry pins only, at the versions the pinned Horizon uses: put it back after a local cargo run.
+`python tools/make_textures.py` redraws the textures.
 
 ## License
 
