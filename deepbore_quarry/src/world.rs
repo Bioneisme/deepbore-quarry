@@ -31,6 +31,8 @@ pub(crate) struct WorldState {
     unforce: Vec<(String, [i32; 2])>,
     /// The first tick of this world has run: the saved holds are tickets again.
     woken: bool,
+    /// Ticks spent waiting for a level with saved holds to open.
+    wake_tries: u32,
 }
 
 /// One chunk a quarry holds or lets go of, under its own ticket.
@@ -103,6 +105,7 @@ pub(crate) fn world(host: &dyn ServerHost) -> Option<MutexGuard<'static, Option<
             tickets: Vec::new(),
             unforce,
             woken: false,
+            wake_tries: 0,
             dir,
         });
     }
@@ -210,9 +213,29 @@ pub(crate) fn server_tick(host: &mut dyn ServerHost) {
         st.woken = true;
         (std::mem::take(&mut st.tickets), std::mem::take(&mut st.unforce), wake)
     };
+    // Horizon opens the Nether and the End when someone goes there, and a level's saved tickets don't
+    // open it as the world opens (vanilla's levels all open with the server). A command run in the
+    // level opens it; it then loads its saved tickets and stays open while they hold its chunks.
+    let mut opening: Vec<String> = Vec::new();
     for (dimension, quarry, chunk) in wake {
-        if !force(host, &dimension, quarry, chunk, true) {
-            log::warn!("[deepbore_quarry] {dimension} isn't open: the quarry at {quarry:?} waits for it");
+        if host.level(&dimension).is_none() {
+            if !opening.contains(&dimension) {
+                host.commands().run_command(&format!("execute in {dimension} run forceload query"));
+                opening.push(dimension);
+            }
+            continue;
+        }
+        force(host, &dimension, quarry, chunk, true);
+    }
+    if !opening.is_empty()
+        && let Some(st) = lock().as_mut()
+    {
+        // Again at the next tick, for a while: the level opens after the command's tick.
+        st.wake_tries += 1;
+        if st.wake_tries < 100 {
+            st.woken = false;
+        } else {
+            log::warn!("[deepbore_quarry] {} didn't open: their quarries wait for someone to go there", opening.join(", "));
         }
     }
     // A world from 0.1.x: its own /forceloads go, once; the quarries hold tickets now.

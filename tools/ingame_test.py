@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Drives the game offscreen with horizon-ctl and checks the quarry.
 
-    python tools/ingame_test.py GAME_FOLDER VERSION [SCENARIO ...]
+    python tools/ingame_test.py GAME_FOLDER INSTANCE VERSION [SCENARIO ...]
 
-GAME_FOLDER is a test instance's folder, VERSION the installed version it plays
-(native-...). The world `dbq-test` is left for a look; delete the instance when done.
+GAME_FOLDER is a test instance's folder, INSTANCE its name, VERSION the native build it plays (native-...).
+A build with native mods starts only through the launcher's Play (`horizon-launcher play`); HORIZON_LAUNCHER
+(default D:/Games/HorizonLauncher/horizon-launcher.exe) is the launcher, HORIZON_LAUNCHER_HOME its real data folder. The world `dbq-test` is left for a look; delete the instance when done.
 Scenarios: screen dig chest kept fluid save redstone limit hopper chunk draw waiting
 nether recipes russian deep migrate. Without any, all of them.
 """
@@ -15,8 +16,9 @@ import subprocess
 import sys
 import time
 
-GAME, VERSION = sys.argv[1:3]
-ONLY = set(sys.argv[3:])
+GAME, INSTANCE, VERSION = sys.argv[1:4]
+ONLY = set(sys.argv[4:])
+LAUNCHER = os.environ.get("HORIZON_LAUNCHER", "D:/Games/HorizonLauncher/horizon-launcher.exe")
 CTL = os.path.join(os.environ["APPDATA"], "horizon-launcher", "versions", VERSION, "horizon-ctl.exe")
 os.environ["HORIZON_HOME"] = GAME
 os.environ["MSYS_NO_PATHCONV"] = "1"
@@ -226,7 +228,7 @@ def s_save():
     ctl("close")
     ctl("wait", 120)
     before = chest_counts(500, 0).get("minecraft:smooth_stone", 0)
-    ctl("quit")
+    quit_game()
     time.sleep(3)
     launched()
     chat("tp @s 500.5 151 3.5")
@@ -304,7 +306,7 @@ def s_waiting():
     ctl("wait", 80)
     check("the first block is dug", "smooth_stone" not in block(1198, 151, -5), block(1198, 151, -5))
     check("and the second waits", "smooth_stone" in block(1199, 151, -5), block(1199, 151, -5))
-    ctl("quit")
+    quit_game()
     time.sleep(8)
     launched()
     chat("tp @s 1200.5 151 3.5")
@@ -338,13 +340,16 @@ def s_nether():
     ctl("wait", 40)
     line = " ".join(chat(f"{nether} data get block 3001 151 3000 Items"))
     before = sum(int(m) for m in re.findall(r"count: ?(\d+)", line))
-    ctl("quit")
+    quit_game()
     time.sleep(8)
     launched()
     ctl("wait", 300)
     line = " ".join(chat(f"{nether} data get block 3001 151 3000 Items"))
     after = sum(int(m) for m in re.findall(r"count: ?(\d+)", line))
     check("the nether's quarry works after a reopen with nobody there", after >= before + 3, f"{before} then {after}")
+    # Gone, so its owner's next chunk-upgraded quarry may hold chunks (one quarry per owner does).
+    chat(f"{nether} setblock 3000 151 3000 minecraft:air")
+    ctl("wait", 20)
 
 
 def held():
@@ -406,7 +411,7 @@ def s_migrate():
     # What 0.1.x left: the chunks forced with /forceload, saved by the game, and loads.json.
     for x, z in chunks:
         chat(f"forceload add {x * 16} {z * 16}")
-    ctl("quit")
+    quit_game()
     time.sleep(4)
     with open(os.path.join(FILES, "loads.json"), "w", encoding="utf-8") as f:
         json.dump({"holds": holds, "foreign": []}, f)
@@ -449,7 +454,7 @@ def s_draw():
 
 def craft(name):
     """Crafts a recipe by hand on a table, from what its file says, and takes the result."""
-    recipe = json.load(open(f"content/data/deepbore_quarry/recipe/{name}.json", encoding="utf-8"))
+    recipe = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "deepbore_quarry", "data", "deepbore_quarry", "recipe", f"{name}.json"), encoding="utf-8"))
     rows = "".join(recipe["pattern"])
     chat("clear @s")
     for symbol, item in recipe["key"].items():
@@ -545,8 +550,27 @@ SCENARIOS = {
 
 
 def launched():
-    r = ctl("launch", "--world", WORLD, "--seed", "12345", "--creative", "--wait", "--offscreen", timeout=280)
-    print(" launch:", str(r)[:100], flush=True)
+    """Starts the game through the launcher and waits until the player stands in the world."""
+    subprocess.Popen([LAUNCHER, "play", "--instance", INSTANCE, "--version", VERSION, "--world", WORLD, "--creative",
+                      "--arg", "--control", "--arg", "--seed", "--arg", "12345"],
+                     env={k: v for k, v in os.environ.items() if k != "HORIZON_HOME"},
+                     stdout=open(os.path.join(GAME, "play.log"), "w"), stderr=subprocess.STDOUT)
+    for _ in range(100):
+        player = ctl("state", timeout=60).get("player") or {}
+        if player.get("pos") or player.get("position"):
+            break
+        time.sleep(3)
+    print(" launch:", str(ctl("wait-ready", 60, timeout=120))[:100], flush=True)
+
+
+def quit_game():
+    """Saves and exits, and waits until the game is gone, so the next Play starts a new one."""
+    ctl("quit")
+    for _ in range(40):
+        if "error" in ctl("state", timeout=30):
+            break
+        time.sleep(2)
+    time.sleep(4)
 
 
 def main():
@@ -559,7 +583,7 @@ def main():
                 run()
             except Exception as e:  # keep going: the other scenarios still tell something
                 check(f"{name} ran", False, repr(e)[:300])
-    ctl("quit")
+    quit_game()
     print(f"== failed: {failed}" if failed else "== all passed", flush=True)
 
 
