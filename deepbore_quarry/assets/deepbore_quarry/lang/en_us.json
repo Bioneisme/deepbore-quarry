@@ -4,7 +4,6 @@
   "item.deepbore_quarry.speed_upgrade": "Quarry Speed Upgrade",
   "item.deepbore_quarry.fluids_upgrade": "Quarry Fluids Upgrade",
   "item.deepbore_quarry.chunk_upgrade": "Quarry Chunk Upgrade",
-  "deepbore_quarry.mod.description": "A machine that digs a square pit down to bedrock and fills a chest.",
   "deepbore_quarry.screen.title": "Deepbore Quarry",
   "deepbore_quarry.screen.fuel": "Fuel: %s blocks",
   "deepbore_quarry.screen.depth": "Layer: %s",
@@ -24,6 +23,5 @@
   "deepbore_quarry.not_owner": "This quarry belongs to another player.",
   "deepbore_quarry.maxsize.set": "Largest quarry area: %s×%s",
   "deepbore_quarry.maxsize.usage": "Sizes: 5, 9, 13 or 17",
-  "deepbore_quarry.chunk.taken": "Another quarry holds its chunks",
-  "deepbore_quarry.missing.native": "Deepbore Quarry: the native mod is missing, so there is no quarry. Install deepbore_quarry_native too:"
+  "deepbore_quarry.chunk.taken": "Another quarry holds its chunks"
 }

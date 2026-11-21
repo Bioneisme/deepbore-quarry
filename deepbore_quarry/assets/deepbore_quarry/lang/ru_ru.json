@@ -4,7 +4,6 @@
   "item.deepbore_quarry.speed_upgrade": "Улучшение карьера: скорость",
   "item.deepbore_quarry.fluids_upgrade": "Улучшение карьера: жидкости",
   "item.deepbore_quarry.chunk_upgrade": "Улучшение карьера: чанки",
-  "deepbore_quarry.mod.description": "Машина, которая выкапывает квадратную яму до бедрока и складывает добычу в сундук.",
   "deepbore_quarry.screen.title": "Глубинный карьер",
   "deepbore_quarry.screen.fuel": "Топливо: %s бл.",
   "deepbore_quarry.screen.depth": "Слой: %s",
@@ -24,6 +23,5 @@
   "deepbore_quarry.not_owner": "Этот карьер принадлежит другому игроку.",
   "deepbore_quarry.maxsize.set": "Наибольшая область карьера: %s×%s",
   "deepbore_quarry.maxsize.usage": "Размеры: 5, 9, 13 или 17",
-  "deepbore_quarry.chunk.taken": "Чанки держит другой карьер",
-  "deepbore_quarry.missing.native": "Deepbore Quarry: не установлен нативный мод, поэтому карьера нет. Поставьте ещё deepbore_quarry_native:"
+  "deepbore_quarry.chunk.taken": "Чанки держит другой карьер"
 }

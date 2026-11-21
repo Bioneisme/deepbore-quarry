@@ -1,0 +1,18 @@
+id = "deepbore_quarry_native"
+name = "Deepbore Quarry"
+version = "0.3.0"
+description = "A machine that digs a square pit down to bedrock and fills a chest."
+authors = ["bioneisme"]
+license = "MIT"
+api = "0.2"
+side = "both"
+# registries: "May add blocks, items, mob effects and entity types to your worlds".
+capabilities = ["registries"]
+# The block, items, menu and files are in the namespace the mod has always used, so saved worlds keep their quarries.
+namespaces = ["deepbore_quarry"]
+
+# Built by the launcher against this Horizon commit's prebuilt game.
+[native]
+game = "26.3"
+horizon = "8f83e5c85ae3b9a117f742e8d91170c5c9080a06"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"

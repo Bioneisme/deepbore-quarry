@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub const ID: &str = "deepbore_quarry_native";
-pub const VERSION: &str = "0.2.0";
+pub const VERSION: &str = "0.3.0";
 /// The folder in the world's folder.
 pub const DIR: &str = "horizon-deepbore-quarry";
 pub const BLOCK: &str = "deepbore_quarry:quarry";

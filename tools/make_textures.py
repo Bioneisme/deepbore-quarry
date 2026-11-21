@@ -3,14 +3,14 @@
 
     python tools/make_textures.py
 
-Writes content/assets/deepbore_quarry/textures/{block,item,gui}/*.png and icon.png.
+Writes deepbore_quarry/assets/deepbore_quarry/textures/{block,item,gui}/*.png and icon.png.
 """
 import struct
 import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TEX = ROOT / "content" / "assets" / "deepbore_quarry" / "textures"
+TEX = ROOT / "deepbore_quarry" / "assets" / "deepbore_quarry" / "textures"
 
 CLEAR = (0, 0, 0, 0)
 EDGE = (28, 30, 36, 255)
