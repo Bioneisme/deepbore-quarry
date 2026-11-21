@@ -94,6 +94,18 @@ def put(slot, item, count=1):
     return True
 
 
+def carried(item):
+    """How many of an item the player has, in the open menu's inventory slots."""
+    return sum(s.get("count", 0) for s in ctl("screen").get("slots", []) if s.get("item") == item and s["slot"] < 36)
+
+
+def shift(item):
+    at = next((s for s in ctl("screen").get("slots", []) if s.get("item") == item and s["slot"] < 36), None)
+    if at:
+        ctl("click-slot", at["slot"], "shift")
+        ctl("wait", 2)
+
+
 def container(slot):
     return next((s for s in ctl("screen").get("slots", []) if s["slot"] == 300 + slot), {})
 
@@ -137,7 +149,36 @@ def s_screen():
     ctl("click-slot", 301, "shift")
     ctl("wait", 2)
     check("it comes back with a shift-click", not container(1).get("item"), str(container(1)))
+    # Shift-clicks move items, never make them: the quarry's and the player's counts add up.
+    speed = "deepbore_quarry:speed_upgrade"
+    upgrades = lambda: sum(container(i).get("count", 0) for i in range(1, 5) if container(i).get("item") == speed)
+    shift(speed)
+    check("a full move keeps the count (both upgrades in, one a slot, none left)", upgrades() == 2 and carried(speed) == 0,
+          f"{upgrades()} in, {carried(speed)} kept")
+    chunk = "deepbore_quarry:chunk_upgrade"
+    ctl("give", chunk, 2)
+    ctl("wait", 2)
+    shift(chunk)
+    chunks = sum(container(i).get("count", 0) for i in range(1, 5) if container(i).get("item") == chunk)
+    check("a partial move keeps the count (one chunk upgrade allowed: 1 in, 1 kept)", chunks == 1 and carried(chunk) == 1,
+          f"{chunks} in, {carried(chunk)} kept")
+    ctl("give", COAL, 8)
+    ctl("wait", 2)
+    shift(COAL)
+    check("a whole stack of fuel moves in once", container(0).get("count") == 16 and carried(COAL) == 0,
+          f"{container(0)}, {carried(COAL)} kept")
+    ctl("give", COAL, 60)
+    ctl("wait", 2)
+    shift(COAL)
+    check("fuel past a full slot stays with the player (16 + 60: 64 in, 12 kept)",
+          container(0).get("count") == 64 and carried(COAL) == 12, f"{container(0)}, {carried(COAL)} kept")
+    ctl("give", "minecraft:dirt", 4)
+    ctl("wait", 2)
+    shift("minecraft:dirt")
+    check("what can't burn isn't shift-clicked in", carried("minecraft:dirt") == 4 and container(0).get("item") == COAL,
+          f"{carried('minecraft:dirt')} dirt kept, {container(0)}")
     ctl("close")
+    chat("clear @s")  # what is left over would go into the next scenario's quarry
     ctl("wait", 2)
 
 

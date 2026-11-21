@@ -4,8 +4,8 @@ use crate::{keys, rules, upgrade_of, world};
 use mod_api::{
     BlockEntityPart, BlockEntityRenderBoundingBoxEvent, BlockEntitySubmitEvent, BlockEntityTickEvent,
     BlockEntityTicksEvent, BlockEntityUpdateTagEvent, BlockPart, BlockState, BlockUpdateFlags, ClientHost,
-    Compound, CubeFace, Direction, Flow, Host, HostBlockStates, HostTransaction, ItemPart, ItemResource, ItemStack,
-    LevelRef, LightLayer, MenuButtonEvent, MenuContainer, MenuPart, MenuQuickMoveEvent, MenuSlotRulesEvent,
+    Compound, CubeFace, Direction, Host, HostBlockStates, HostTransaction, ItemPart, ItemResource, ItemStack,
+    LevelRef, LightLayer, MenuButtonEvent, MenuContainer, MenuPart, MenuSlotRulesEvent,
     OnBlockPlacedByEvent, ParticleOptions, Screen, ScreenClickEvent, ScreenDrawEvent, ScreenEvent, ServerHost,
     SoundSource, Tag, Text, ITEMS,
 };
@@ -376,64 +376,28 @@ const TOGGLE: i32 = 0;
 /// `[x, y, width, height]`, from the screen's top left.
 const BUTTON: [f32; 4] = [136.0, 34.0, 32.0, 18.0];
 
-/// The menu's slots: fuel in the first, one upgrade in each of the next four, nothing in the hidden ones.
+/// The menu's slots: fuel in the first, one upgrade in each of the next four (no more of a kind than it allows),
+/// nothing in the hidden ones. The game's own shift-click follows these rules, so it moves items without the mod
+/// counting them.
 pub(crate) struct QuarryMenu;
 
 #[mod_api::horizon_part]
 impl MenuPart for QuarryMenu {
-    fn menu_slot_rules(&self, _: &dyn Host, event: &mut MenuSlotRulesEvent<'_>) {
+    fn menu_slot_rules(&self, host: &dyn Host, event: &mut MenuSlotRulesEvent<'_>) {
         if event.container != MenuContainer::Main {
             return;
         }
-        let upgrade = upgrade_of(event.stack.item()).is_some();
+        let upgrade = upgrade_of(event.stack.item());
         match event.slot {
-            0 => event.may_place = !upgrade,
+            0 => event.may_place = upgrade.is_none() && burn_time(host, event.stack) > 0,
             1..5 => {
-                event.may_place = upgrade;
+                let main = event.context.slots.first().map_or(&[][..], Vec::as_slice);
+                event.may_place = upgrade.is_some_and(|kind| rules::accepts(&upgrade_slots(main), event.slot - 1, kind));
                 event.max_stack = 1;
             }
             _ => event.may_place = false,
         }
     }
-}
-
-/// A shift-click from the inventory: upgrades to a slot that takes them, fuel to its slot, nothing else.
-/// One from the quarry goes the game's way, to the inventory.
-fn quick_move(host: &mut dyn ServerHost, event: &mut MenuQuickMoveEvent<'_>) -> Flow {
-    if event.slot < event.container_slots {
-        return Flow::Continue;
-    }
-    let items = &mut event.entity.items;
-    if items.len() < rules::SLOTS {
-        items.resize(rules::SLOTS, None);
-    }
-    let stack = &mut *event.stack;
-    if let Some(kind) = upgrade_of(stack.item()) {
-        let slots = upgrade_slots(items);
-        let free = (0..rules::UPGRADE_SLOTS)
-            .find(|i| items[rules::FIRST_UPGRADE + i].is_none() && rules::accepts(&slots, *i, kind));
-        if let Some(i) = free {
-            let mut one = stack.clone();
-            let _ = one.set_count(1);
-            items[rules::FIRST_UPGRADE + i] = Some(one);
-            let _ = stack.set_count(stack.count() - 1);
-        }
-    } else if burn_time(host, stack) > 0 {
-        let most = host.max_stack_size(stack.item()).unwrap_or(64);
-        match items[rules::FUEL_SLOT].as_mut() {
-            None => {
-                items[rules::FUEL_SLOT] = Some(stack.clone());
-                let _ = stack.set_count(0);
-            }
-            Some(have) if have.item() == stack.item() => {
-                let room = most.saturating_sub(have.count()).min(stack.count());
-                let _ = have.set_count(have.count() + room);
-                let _ = stack.set_count(stack.count() - room);
-            }
-            Some(_) => {}
-        }
-    }
-    Flow::Cancel
 }
 
 // ---- the screen ----------------------------------------------------------------
@@ -641,10 +605,6 @@ impl BlockEntityPart for Quarry {
             quarry.on = !quarry.on;
             store(&mut event.entity.nbt, &quarry);
         }
-    }
-
-    fn menu_quick_move(&self, host: &mut dyn ServerHost, event: &mut MenuQuickMoveEvent<'_>) -> Flow {
-        quick_move(host, event)
     }
 
     fn screen(&self, _: &dyn Host, _: &mut ScreenEvent<'_>) -> Option<Screen> {
