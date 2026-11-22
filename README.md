@@ -93,7 +93,7 @@ world's folder.
 ## Good to know
 
 - Every player needs the mod. It runs with your account's permissions, as every native mod does.
-- 0.3.0 is built on Horizon Nightly 2026-11-21 (8f83e5c), the first with the mod SDK. A world from 0.2 should keep
+- 0.3.1 is built on Horizon Nightly 2026-11-22 (2b77287), on its mod SDK. A world from 0.2 should keep
   its quarries, since what is saved is the same (the block entity `deepbore_quarry:quarry`, its slots, its state and
   `horizon-deepbore-quarry/` in the world), and the chunks the quarries held are taken again when the world opens.
   Back up a world you care about before the first open.
